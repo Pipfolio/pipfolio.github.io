@@ -2,7 +2,7 @@
 <div align="left">
   <a href="https://pipfolio.github.io/"><img src="assets/favicon-4ac694167e7a.png" alt="Pipfolio Logo" width="75" align="left"></a>
   <p align="justify">
-    <b>Pipfolio</b> is an advanced trading journal and analytics platform designed to help traders track trades, evaluate strategies, manage risk, analyse performance, and strengthen trading psychology. Through data-driven insights, Pipfolio supports informed decisions, trading discipline, and continuous improvement.
+    <b>Pipfolio</b> is an advanced trading journal and analytics platform designed to help traders track trades, evaluate strategies, manage risk, analyse performance, and strengthen psychology. Through data-driven insights, Pipfolio supports decisions, trading discipline, and continuous improvement.
   </p>
 </div>
 

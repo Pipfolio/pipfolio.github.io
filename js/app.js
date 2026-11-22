@@ -1,13 +1,9 @@
 'use strict';
 
-      // ----------------------------------------------------------------------------
       // Supabase connection
-      // ----------------------------------------------------------------------------
       const SUPABASE_URL = 'https://ukotgedbveqgsywksuyc.supabase.co';
       const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Dqw7e5vjjn1IXwlKzG17nw_elllMnSH';
-      // ----------------------------------------------------------------------------
       // App state and shared helpers
-      // ----------------------------------------------------------------------------
       const SIDES = ['Buy', 'Sell'],
         SESS = ['Asian', 'London', 'New York', 'London/NY Overlap', 'Other'];
       let db = null,
@@ -50,9 +46,7 @@
             })[c],
         );
 
-      // ----------------------------------------------------------------------------
       // Instrument logos and ticker fallbacks
-      // ----------------------------------------------------------------------------
       const TV_LOGO_ROOT = 'https://s3-symbol-logo.tradingview.com/';
       const TV_COUNTRY = {
         EUR: 'EU',
@@ -299,9 +293,7 @@
         return `<span class="pair-label"><span class="pair-logos">${logos}</span><span>${esc(raw)}</span></span>`;
       }
 
-      // ----------------------------------------------------------------------------
       // Rounding and formatting helpers
-      // ----------------------------------------------------------------------------
       // Round half away from zero; toPrecision strips binary float noise (e.g. 1.005 -> 1.01).
       const roundTo = (x, dp = 2) => {
         if (!Number.isFinite(x)) return x;
@@ -321,9 +313,7 @@
         document.documentElement.dataset.theme = t;
       }
       setTheme('light', false);
-      // ----------------------------------------------------------------------------
       // Appearance preferences
-      // ----------------------------------------------------------------------------
       const DEFAULT_QUOTE = 'A little progress, one trade at a time.';
       function dashboardQuote() {
         return preferences.quote || DEFAULT_QUOTE;
@@ -354,9 +344,7 @@
         root.dataset.neutralAccent = c === '#000000' || c === '#ffffff' ? 'true' : 'false';
       }
       applyAccent(preferences.accent, false);
-      // ----------------------------------------------------------------------------
       // Data cleaning and validation helpers
-      // ----------------------------------------------------------------------------
       const defPip = (p) => (/JPY/.test(p) ? 0.01 : /XAU|GOLD/.test(p) ? 0.1 : 0.0001);
       const num = (v) => (v === '' || v == null ? null : Number.isFinite(+v) ? +v : NaN);
       const ACCT = ['Demo', 'Live', 'Prop Firm', 'Other'];
@@ -574,9 +562,7 @@
         setTheme(preferences.theme, false);
         applyAccent(preferences.accent, false);
       }
-      // ----------------------------------------------------------------------------
       // Cloud sync and account loading
-      // ----------------------------------------------------------------------------
       function syncStatus(message) {
         syncMessage = message;
         const el = $('#cloud-status');
@@ -723,9 +709,7 @@
           busy(false);
         }
       }
-      // ----------------------------------------------------------------------------
       // Trade calculations and statistics
-      // ----------------------------------------------------------------------------
       const closed = (t) => t.exit != null && t.pl != null && !!t.xdt;
       const calc = (t) => {
         const d = t.side === 'Buy' ? 1 : -1,
@@ -807,9 +791,7 @@
           sr,
         };
       }
-      // ----------------------------------------------------------------------------
       // Dialogs
-      // ----------------------------------------------------------------------------
       const closeDlg = () => {
         dlg.onclose = null;
         if (dlg.open) dlg.close();
@@ -918,9 +900,7 @@
           { label: 'Cancel', val: false },
           { label, cls: 'danger solid', val: true },
         ]);
-      // ----------------------------------------------------------------------------
       // Authentication
-      // ----------------------------------------------------------------------------
       // Count Unicode code points, so emojis are not counted as two UTF-16 units.
       function validUsername(value) {
         const length = [...value].length;
@@ -1125,9 +1105,7 @@
         }
       }
 
-      // ----------------------------------------------------------------------------
       // App shell and view routing
-      // ----------------------------------------------------------------------------
       function render() {
         const v = S.view;
         app.innerHTML = `<div class="wrap"><header class="top">${PIPFOLIO_BRAND}
@@ -1166,9 +1144,7 @@
     ${v === a.id ? 'selected' : ''}>${esc(a.name)}</option>`,
           )
           .join('')}`;
-      // ----------------------------------------------------------------------------
       // Dashboard
-      // ----------------------------------------------------------------------------
       function dashboard() {
         if (S.acc !== 'all' && !acc(S.acc)) S.acc = 'all';
         const accounts = scopeAccs();
@@ -1376,13 +1352,9 @@
       </div>`;
       }
 
-      // ----------------------------------------------------------------------------
       // Chart calculations and rendering
-      // ----------------------------------------------------------------------------
 
-      // ----------------------------------------------------------------------------
       // Chart tooltips
-      // ----------------------------------------------------------------------------
       let chartInfoPop;
       function showChartInfo(el) {
         if (!chartInfoPop) {
@@ -1540,13 +1512,9 @@
       });
       window.addEventListener('scroll', hideChartInfo, true);
       window.addEventListener('resize', hideChartInfo);
-      // ----------------------------------------------------------------------------
       // Progress chart interactions
-      // ----------------------------------------------------------------------------
 
-      // ----------------------------------------------------------------------------
       // Trading calendar
-      // ----------------------------------------------------------------------------
       const MONTHS = [
         'January',
         'February',
@@ -1741,9 +1709,7 @@
         S.calDay = '';
         refreshCal();
       }
-      // ----------------------------------------------------------------------------
       // Example data
-      // ----------------------------------------------------------------------------
       const SAMPLE_ACCOUNTS = [
         {
           id: 'sample-acc-demo',
@@ -1998,9 +1964,7 @@
               (!q || (x.t.pair + ' ' + x.t.setup + ' ' + x.t.notes).toLowerCase().includes(q)),
           );
       };
-      // ----------------------------------------------------------------------------
       // Trades list and account cards
-      // ----------------------------------------------------------------------------
       function tradesView() {
         const head = `<div class="page-h"><h1 class="trades-title">Trades </h1><div class="row"><button class="btn primary" data-act="add">Add Trade</button></div></div>`;
         if (!S.trades.length) return head + emptyState();
@@ -2108,9 +2072,7 @@
     <button class="btn" data-act="flowadd" data-id="${esc(a.id)}" data-t="Withdrawal">Withdraw</button>
     </div></div></div>${flows}</div></details></div>`;
       }
-      // ----------------------------------------------------------------------------
       // Settings page
-      // ----------------------------------------------------------------------------
       let settingsSection = 'appearance';
       function settingsView() {
         const dark = preferences.theme === 'dark';
@@ -2146,9 +2108,7 @@
           </section>
           </div></div></div>`;
       }
-      // ----------------------------------------------------------------------------
       // Trade review and risk calculator
-      // ----------------------------------------------------------------------------
       const EMOTIONS = [
         'Calm',
         'Confident',
@@ -2208,9 +2168,7 @@
           reader.readAsDataURL(file);
         });
       }
-      // ----------------------------------------------------------------------------
       // Strategy and discipline review
-      // ----------------------------------------------------------------------------
       function strategyPanel() {
         const map = new Map();
         for (const t of S.trades) {
@@ -2249,9 +2207,7 @@
         return `<div class="page-h"><div><div class="review-page-heading"><h1>Trade Review</h1></div><p class="subl">Review your strategies and trading discipline.</p></div><button class="btn primary" data-act="riskcalc">Risk Calculator</button></div>
  ${strategyPanel() || '<div class="card review-analytics"><div class="review-section-heading"><h2>Strategy Performance</h2></div><p class="review-hint">Add and close trades with a strategy to see your review here.</p></div>'}`;
       }
-      // ----------------------------------------------------------------------------
       // Risk calculator
-      // ----------------------------------------------------------------------------
       function riskCalculator() {
         openDlg(
           `<div class="dh"><h2>Risk Calculator</h2></div><div class="db"><div class="grid2"><label class="f"><span>Account Balance</span><input id="rc-balance" type="number" min="0" step="any" value="1000"></label><label class="f"><span>Risk (%)</span><input id="rc-percent" type="number" min="0" step="any" value="1"></label><label class="f"><span>Stop-Loss Distance (Pips)</span><input id="rc-pips" type="number" min="0" step="any" value="20"></label><label class="f"><span>Pip Value per Standard Lot (Account Currency)</span><input id="rc-value" type="number" min="0" step="any" value="10"></label></div><div class="calc" style="margin-top:20px"><div class="lbl">Amount at Risk<b id="rc-amount">N/A</b></div><div class="lbl">Suggested Lot Size<b id="rc-lots">N/A</b></div></div><p class="review-hint" style="margin-top:12px">Enter your broker's actual pip value. This estimate excludes commissions, slippage and conversion costs.</p></div><div class="df"><button class="btn" data-act="close">Close</button></div>`,
@@ -2277,9 +2233,7 @@
         dlg.querySelectorAll('input').forEach((i) => i.addEventListener('input', update));
         update();
       }
-      // ----------------------------------------------------------------------------
       // Trade form
-      // ----------------------------------------------------------------------------
       const F = (n, l, inp, hint) =>
         `<label class="f" data-f="${n}"><span>${l}</span>${inp}<small class="err"></small>${
           hint ? `<small class="hint">${hint}</small>` : ''
@@ -2654,9 +2608,7 @@
           }
         };
       }
-      // ----------------------------------------------------------------------------
       // Trade form validation
-      // ----------------------------------------------------------------------------
       function validate(f, id) {
         const e = {},
           g = (n) => String(f.get(n) || '').trim(),
@@ -2776,9 +2728,7 @@
           });
         return { errs: trade ? {} : { pair: 'Trade data is invalid' }, trade };
       }
-      // ----------------------------------------------------------------------------
       // Account form
-      // ----------------------------------------------------------------------------
       function accForm(a) {
         const e = !!a,
           v = a || { type: 'Demo', currency: '$', balance: '' };
@@ -2852,9 +2802,7 @@
           }
         };
       }
-      // ----------------------------------------------------------------------------
       // Trade detail dialog
-      // ----------------------------------------------------------------------------
       function detail(id) {
         const t = S.trades.find((x) => x.id === id);
         if (!t) return;
@@ -2927,9 +2875,7 @@
         }</div>`,
         );
       }
-      // ----------------------------------------------------------------------------
       // Backup and restore
-      // ----------------------------------------------------------------------------
       function exportData() {
         const d = {
           app: 'Pipfolio',
@@ -3036,9 +2982,7 @@
         toast('Backup restored to your account.');
         render();
       }
-      // ----------------------------------------------------------------------------
       // Broker CSV import
-      // ----------------------------------------------------------------------------
       function parseCsv(txt) {
         const rows = [];
         let row = [],
@@ -3454,9 +3398,7 @@
           }
         };
       }
-      // ----------------------------------------------------------------------------
       // Deposits and withdrawals
-      // ----------------------------------------------------------------------------
       function flowForm(id, type) {
         const a = acc(id);
         if (!a) return;
@@ -3502,9 +3444,7 @@
           }
         };
       }
-      // ----------------------------------------------------------------------------
       // Click actions
-      // ----------------------------------------------------------------------------
       const act = {
         view: (d) => {
           S.view = d.v;
@@ -3861,9 +3801,7 @@
         else await importFile(f);
       };
 
-      // ----------------------------------------------------------------------------
       // Card help text
-      // ----------------------------------------------------------------------------
 
       // Harmonise heading capitalisation throughout the app without changing trade data.
       function harmoniseHeadings() {
@@ -3943,9 +3881,7 @@
         subtree: true,
       });
       fitRecentTradeRows();
-      // ----------------------------------------------------------------------------
       // Start-up
-      // ----------------------------------------------------------------------------
       dlg.addEventListener('cancel', (event) => {
         if (saving) event.preventDefault();
       });

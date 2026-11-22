@@ -23,28 +23,24 @@
 > [!CAUTION]
 > <p align="justify">Pipfolio is intended for informational and analytical purposes only. It does not provide financial advice, investment recommendations, or trading signals. Users are responsible for their trading decisions and should never disclose passwords, API secrets, or sensitive credentials.</p>
 
-
-
-<br>
 <hr>
 
 <div align="center">
   <p>
     <sub>
       <a href="https://pipfolio.github.io/"><b>Website</b></a>
-      &nbsp;&nbsp;·&nbsp;&nbsp;
+      &nbsp;·&nbsp;
       <a href="PRIVACY.md"><b>Privacy Policy</b></a>
-      &nbsp;&nbsp;·&nbsp;&nbsp;
+      &nbsp;·&nbsp;
+      <a href="TERMS.md"><b>Terms of Service</b></a>
+      &nbsp;·&nbsp;
       <a href="mailto:pipfolio@proton.me"><b>Contact</b></a>
     </sub>
   </p>
 
   <p>
     <sub>
-      © 2026 <b>Pipfolio</b>. All rights reserved.
-      <br>
-      Created and developed by
-      <a href="https://github.com/AhndreWalters"><b>Ahndre Walters</b></a>
+      © 2026 Pipfolio. All rights reserved.
     </sub>
   </p>
 </div>

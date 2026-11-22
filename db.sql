@@ -18,9 +18,7 @@
 begin;
 
 
--- ============================================================
 -- 1. JOURNALS
--- ============================================================
 
 create table if not exists public.journals (
     user_id uuid primary key
@@ -92,9 +90,7 @@ with check (
 );
 
 
--- ============================================================
 -- 2. SAVE JOURNAL FUNCTION
--- ============================================================
 
 create or replace function public.save_journal(
     p_payload jsonb,
@@ -187,9 +183,7 @@ public.save_journal(jsonb, bigint)
 to authenticated;
 
 
--- ============================================================
 -- 3. USER PROFILES
--- ============================================================
 
 create table if not exists public.profiles (
     id uuid primary key
@@ -219,7 +213,6 @@ drop constraint if exists username_length;
 
 -- Allow emojis, spaces, special characters,
 -- uppercase letters and Unicode.
---
 -- Maximum: 100 PostgreSQL characters.
 -- Empty or whitespace-only usernames are rejected.
 -- NULL remains allowed for existing users.
@@ -235,9 +228,7 @@ check (
 );
 
 
--- ============================================================
 -- 4. PROFILE SECURITY
--- ============================================================
 
 alter table public.profiles
 enable row level security;
@@ -288,10 +279,7 @@ with check (
     (select auth.uid()) = id
 );
 
-
--- ============================================================
 -- 5. AUTOMATIC PROFILE CREATION
--- ============================================================
 
 create or replace function
 public.handle_new_user()
@@ -353,14 +341,10 @@ on auth.users
 for each row
 execute function public.handle_new_user();
 
-
--- ============================================================
 -- 6. EXISTING USERS
--- ============================================================
 
 -- Create missing profiles for previously
 -- registered accounts.
---
 -- Existing usernames and journal data are preserved.
 
 insert into public.profiles (
@@ -374,9 +358,7 @@ from auth.users as u
 on conflict (id) do nothing;
 
 
--- ============================================================
 -- 7. AUTOMATIC UPDATED TIMESTAMP
--- ============================================================
 
 create or replace function
 public.update_profile_timestamp()

@@ -539,6 +539,16 @@ dialog {
         font-weight: 650;
         color: var(--tx);
       }
+
+      .footer-copyright a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      .footer-copyright a:hover {
+        text-decoration: underline;
+      }
+
       .footer-disclaimer {
         max-width: none;
         width: 100%;

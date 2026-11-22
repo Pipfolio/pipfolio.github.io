@@ -1129,7 +1129,30 @@
             ? reviewView()
             : settingsView()
     }</main>
-    <footer class="footer"><div class="footer-copyright">\u00a9 ${new Date().getFullYear()} <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.<div class="footer-credit">Created by Ahndre Walters</div></div><p class="footer-disclaimer"><strong>Risk Disclaimer:</strong> Trading in financial markets and leveraged instruments involves risk, including capital loss. Pipfolio is a trade journaling and analytics platform for informational purposes only, not financial advice, investment recommendations or trading signals. Trading decisions are at your own risk. Past performance does not guarantee future results. Assess circumstances and practice responsible risk management.</p></footer></div>`;
+
+    <footer class="footer">
+      <div class="footer-copyright">
+        © ${new Date().getFullYear()}
+        <a href="mailto:pipfolio@proton.me">Pipfolio</a>.
+        All rights reserved.
+
+        <div class="footer-credit">
+          <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md">Privacy Policy</a> & <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md">Terms of Service</a>
+        </div>
+      </div>
+
+      <p class="footer-disclaimer">
+        <strong>Risk Disclaimer:</strong>
+        Trading in financial markets and leveraged instruments involves risk,
+        including capital loss. Pipfolio is a trade journaling and analytics
+        platform for informational purposes only, not financial advice,
+        investment recommendations or trading signals. Trading decisions
+        are at your own risk. Past performance does not guarantee future
+        results. Assess circumstances and practise responsible risk management.
+      </p>
+    </footer>
+    </div>`;
+
       }
       const emptyState = () =>
         `<div class="card empty"><h2>No Trades Yet</h2><p>Add your first trade to start tracking

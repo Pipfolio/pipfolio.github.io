@@ -2037,7 +2037,7 @@
       .map(
         (x) => `<tr data-act="detail" data-id="${esc(x.t.id)}" tabindex="0">
         <td data-label="Entry">${fdt(x.t.dt)}</td><td data-label="Pair" class="trade-pair-with-logo"><b>${pairHTML(x.t.pair)}</b></td>
-        <td data-label="Side"><span class="trade-side-badge ${x.t.side === 'Buy' ? 'long' : 'short'}">${x.t.side}</span></td><td data-label="Account">${esc(
+        <td data-label="Side"><span class="trade-side-badge ${x.t.side === 'Buy' ? 'long' : 'short'}">${x.t.side === 'Buy' ? 'Long' : 'Short'}</span></td><td data-label="Account">${esc(
           acc(x.t.account)?.name || '',
         )}</td><td data-label="Duration">${x.dur || '\u2014'}</td><td data-label="Pips" class="n ${cls(x.pips)}">${x.pips ?? '\u2014'}</td>
         <td data-label="Commission" class="n">${fm(Number(x.t.comm) || 0, 0, ccy(x.t))}</td>

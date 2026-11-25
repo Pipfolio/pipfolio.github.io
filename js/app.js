@@ -65,24 +65,256 @@ function render() {
         return auth(); shell(view === 'dashboard' ? dashboard() : view === 'trades' ? tradesPage() : view === 'calendar' ? calendarPage() : settingsPage());
 }
 function dashboard() {
-    const ts = allClosed().sort((a, b) => (a.xdt || a.dt).localeCompare(b.xdt || b.dt)), wins = ts.filter(t => pnl(t) > 0), losses = ts.filter(t => pnl(t) < 0), net = ts.reduce((s, t) => s + pnl(t), 0), winrate = ts.length ? 100 * wins.length / ts.length : 0, grossWin = wins.reduce((s, t) => s + pnl(t), 0), grossLoss = -losses.reduce((s, t) => s + pnl(t), 0), pf = grossLoss ? (grossWin / grossLoss).toFixed(2) : grossWin ? '∞' : '—', days = {}; for (const t of ts)
-        (days[(t.xdt || t.dt).slice(0, 10)] ||= []).push(t); const dayCount = Object.keys(days).length, greenDays = Object.values(days).filter(a => a.reduce((n, t) => n + pnl(t), 0) > 0).length, avgWin = wins.length ? grossWin / wins.length : 0, avgLoss = losses.length ? grossLoss / losses.length : 0, ratio = avgLoss ? (avgWin / avgLoss).toFixed(2) : '—', quote = data.preferences?.quote?.trim() || 'A clear view of your trading performance.'; return `<div class="pagehead"><div><h2>Trading overview</h2><div class="dashboard-quote">“${esc(quote)}”</div></div></div><section class="metrics metrics-ref"><div class="panel"><div class="metric-label">Net P&L</div><div class="metric-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)}</div><div class="metric-sub">${ts.length} closed trades</div></div><div class="panel"><div class="metric-label">Trade Win %</div><div class="gauge-row"><div class="gauge" style="--pct:${winrate.toFixed(1)}"><strong>${winrate.toFixed(1)}%</strong></div><div class="gauge-side">${wins.length} W<br>${losses.length} L<br>${ts.length - wins.length - losses.length} BE</div></div></div><div class="panel"><div class="metric-label">Profit Factor</div><div class="metric-value">${pf}</div><div class="metric-sub">Gross profit ÷ gross loss</div></div><div class="panel"><div class="metric-label">Average Win / Loss</div><div class="metric-value">${ratio}</div><div class="ratio-bar"><span style="width:${avgWin + avgLoss ? 100 * avgWin / (avgWin + avgLoss) : 50}%"></span></div><div class="metric-sub"><span class="positive">${money(avgWin)} avg win</span> · <span class="negative">${money(avgLoss)} avg loss</span></div></div></section><div class="dashboard-grid"><section class="panel"><div class="panel-head"><h3>Cumulative P&L</h3></div><div class="chart">${curve(ts)}</div></section><section class="panel"><div class="panel-head"><h3>Performance score</h3></div>${performanceRadar(ts)}</section></div><div class="dashboard-calendar">${calendarPage(true)}</div><section class="panel recent-trades"><div class="panel-head"><h3>Recent trades</h3><button type="button" class="btn" data-view="trades">View all trades</button></div>${table(filtered().sort((a, b) => b.dt.localeCompare(a.dt)).slice(0, 6))}</section>`;
+    const ts = allClosed().sort((a, b) => (a.xdt || a.dt).localeCompare(b.xdt || b.dt));
+    const wins = ts.filter(t => pnl(t) > 0);
+    const losses = ts.filter(t => pnl(t) < 0);
+    const net = ts.reduce((sum, t) => sum + pnl(t), 0);
+    const winrate = ts.length ? 100 * wins.length / ts.length : 0;
+    const grossWin = wins.reduce((sum, t) => sum + pnl(t), 0);
+    const grossLoss = -losses.reduce((sum, t) => sum + pnl(t), 0);
+    const pfValue = grossLoss ? grossWin / grossLoss : 0;
+    const pf = grossLoss ? pfValue.toFixed(2) : grossWin ? '∞' : '';
+    const avgWin = wins.length ? grossWin / wins.length : 0;
+    const avgLoss = losses.length ? grossLoss / losses.length : 0;
+    const ratio = avgLoss ? (avgWin / avgLoss).toFixed(2) : '';
+    const quote = data.preferences?.quote?.trim() || 'A clear view of your trading performance.';
+    const breakeven = ts.length - wins.length - losses.length;
+    // Compare the last seven completed calendar days with the seven days before them.
+    // This is a net P&L comparison, not a broker account-balance change.
+    const today = new Date();
+    const utcDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    const dayMs = 86400000;
+    const tradeDay = t => {
+        const raw = (t.xdt || t.dt || '').slice(0, 10);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return NaN;
+        return Date.parse(raw + 'T00:00:00Z');
+    };
+    const recentWeek = ts.filter(t => { const d = tradeDay(t); return d >= utcDay - 6 * dayMs && d < utcDay + dayMs; }).reduce((v, t) => v + pnl(t), 0);
+    const previousWeek = ts.filter(t => { const d = tradeDay(t); return d >= utcDay - 13 * dayMs && d < utcDay - 6 * dayMs; }).reduce((v, t) => v + pnl(t), 0);
+    const weeklyDifference = recentWeek - previousWeek;
+    const weeklyLabel = `${weeklyDifference >= 0 ? '▲' : '▼'} ${money(Math.abs(weeklyDifference))} vs prior 7d`;
+    const totalFees = ts.reduce((sum, t) => sum + num(t.comm) + num(t.charges), 0);
+    // The gauge segments represent the actual proportions of wins, breakevens and losses.
+    // A single half-circle is split into three contiguous segments, matching the reference.
+    const winShare = ts.length ? 100 * wins.length / ts.length : 0;
+    const evenShare = ts.length ? 100 * breakeven / ts.length : 0;
+    const lossShare = ts.length ? 100 * losses.length / ts.length : 0;
+    const gaugePath = 'M 8 57 A 49 49 0 0 1 106 57';
+    const gaugeSegment = (colour, share, offset) => share > 0
+        ? `<path d="${gaugePath}" fill="none" stroke="${colour}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${Math.max(0, share - 0.8)} 100" stroke-dashoffset="${-offset}" />`
+        : '';
+    const winGauge = `<div class="win-reference-layout">
+        <strong class="win-reference-value">${winrate.toFixed(2)}%</strong>
+        <div class="win-reference-right" aria-label="${wins.length} wins, ${breakeven} breakeven, ${losses.length} losses">
+            <svg class="win-reference-arc" viewBox="0 0 114 64" aria-hidden="true">
+                <path d="${gaugePath}" fill="none" stroke="var(--border)" stroke-width="9" pathLength="100" />
+                ${gaugeSegment('var(--green)', winShare, 0)}
+                ${gaugeSegment('var(--accent)', evenShare, winShare)}
+                ${gaugeSegment('var(--red)', lossShare, winShare + evenShare)}
+            </svg>
+            <div class="win-reference-counts">
+                <span class="win-reference-pill win-reference-wins">${wins.length} W</span>
+                <span class="win-reference-pill win-reference-even">${breakeven} BE</span>
+                <span class="win-reference-pill win-reference-losses">${losses.length} L</span>
+            </div>
+        </div>
+    </div>`;
+    const cards = `<section class="metrics metrics-ref metrics-compact metrics-reference">
+        <div class="panel"><div class="metric-label">Net P&L</div><div class="metric-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)}</div><div class="metric-week-change ${weeklyDifference >= 0 ? 'positive' : 'negative'}">${weeklyLabel}</div><div class="metric-sub">${ts.length} closed trades · ${money(totalFees)} fees</div></div>
+        <div class="panel"><div class="metric-label">Trade Win %</div>${winGauge}</div>
+        <div class="panel"><div class="metric-label">Average Win / Loss</div><div class="metric-value">${ratio}</div><div class="ratio-bar"><span style="width:${avgWin + avgLoss ? 100 * avgWin / (avgWin + avgLoss) : 50}%"></span></div><div class="metric-sub avg-win-loss-detail"><span class="positive">${wins.length ? '+' + money(avgWin) : ''}<span class="avg-caption"> avg win</span></span><span class="avg-separator">·</span><span class="negative">${losses.length ? '-' + money(avgLoss) : ''}<span class="avg-caption"> avg loss</span></span></div></div>
+    </section>`;
+    return `<div class="pagehead"><div><h2>Trading Overview</h2><div class="dashboard-quote">“${esc(quote)}”</div></div></div>
+        ${cards}
+        <div class="dashboard-grid"><section class="panel"><div class="panel-head"><h3>Cumulative P&L</h3></div><div class="chart">${curve(ts)}</div></section><section class="panel"><div class="panel-head"><h3>Performance Score</h3></div>${performanceRadar(ts)}</section></div>
+        <div class="dashboard-calendar dashboard-calendar-full">${calendarPage(true)}</div>`;
 }
-function curve(ts) {
-    if (!ts.length)
-        return '<div class="empty">No closed trades yet</div>';
-    let values = [0], running = 0;
-    for (const t of ts) {
-        running += pnl(t);
-        values.push(running);
+/** Daily net P&L uses closed-trade exit dates and recorded net results. */
+function dailyPnLChart(trades) {
+    const totals = new Map();
+    for (const trade of trades) {
+        const date = (trade.xdt || trade.dt || '').slice(0, 10);
+        if (!date) continue;
+        totals.set(date, (totals.get(date) || 0) + pnl(trade));
     }
-    const min = Math.min(0, ...values), max = Math.max(0, ...values), span = max - min || 1;
-    const y = v => 210 - (v - min) / span * 170;
-    const x = i => 30 + i * 660 / (values.length - 1);
-    const points = values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
-    const circles = values.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="11" fill="transparent" stroke="none" class="curve-hit" tabindex="0"><title>${i === 0 ? 'Starting balance' : `After trade ${i}`}: ${money(v)}</title></circle>`).join('');
-    return `<svg viewBox="0 0 720 240" role="img" aria-label="Cumulative profit and loss; hover over the line points to see values" preserveAspectRatio="none"><line x1="30" y1="${y(0)}" x2="690" y2="${y(0)}" stroke="var(--muted)" stroke-opacity=".55" stroke-width="1"/><polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>${circles}</svg>`;
+    const entries = [...totals.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-30);
+    if (!entries.length) return '';
+    const max = Math.max(1, ...entries.map(([, value]) => Math.abs(value)));
+    const bars = entries.map(([date, value]) => {
+        const height = Math.max(1, Math.abs(value) / max * 43);
+        const top = value >= 0 ? 48 - height : 48;
+        const colour = value >= 0 ? 'var(--green)' : 'var(--red)';
+        return `<div class="daily-pnl-item" title="${esc(date)}: ${esc(money(value))}" aria-label="${esc(date)}: ${esc(money(value))}">
+            <div class="daily-pnl-bar" style="top:${top}%;height:${height}%;background:${colour}"></div>
+        </div>`;
+    }).join('');
+    return `<section class="panel daily-pnl-panel">
+        <div class="panel-head"><h3>Daily Net P&L</h3><span class="muted small">Last ${entries.length} trading days · hover for values</span></div>
+        <div class="daily-pnl-chart" role="img" aria-label="Daily net profit and loss chart">
+            <div class="daily-pnl-baseline"></div>${bars}
+        </div>
+    </section>`;
 }
+
+/** Peak-to-trough drawdown from the closed-trade cumulative net P&L curve. */
+function drawdownChart(trades) {
+    if (!trades.length) return `<section class="panel insight-panel"><h3>Relative Drawdown</h3><div class="empty">No closed trades yet</div></section>`;
+    let equity = 0, peak = 0;
+    const values = trades.map(trade => {
+        equity += pnl(trade);
+        peak = Math.max(peak, equity);
+        return Math.max(0, peak - equity);
+    });
+    const maximum = Math.max(1, ...values);
+    const bars = values.map((value, i) => `<div class="insight-bar-slot" title="After trade ${i + 1}: ${esc(money(value))} below peak"><span class="insight-bar negative-bar" style="height:${value / maximum * 100}%"></span></div>`).join('');
+    return `<section class="panel insight-panel"><div class="panel-head"><h3>Drawdown From Peak</h3><span class="muted small">Maximum ${money(Math.max(...values))}</span></div><div class="insight-bars drawdown-bars">${bars}</div><p class="muted small">Cash drawdown based on recorded net P&L, not account equity percentage.</p></section>`;
+}
+
+/** Rolling win rate, using only complete 20-closed-trade windows. */
+function rollingWinChart(trades) {
+    const windowSize = 20;
+    if (trades.length < windowSize) return `<section class="panel insight-panel"><h3>Win-Rate Trend</h3><div class="empty">At least 20 closed trades needed</div></section>`;
+    const values = [];
+    for (let i = windowSize - 1; i < trades.length; i++) {
+        const sample = trades.slice(i - windowSize + 1, i + 1);
+        values.push(100 * sample.filter(trade => pnl(trade) > 0).length / windowSize);
+    }
+    const x = i => 20 + (values.length === 1 ? 0 : i * 660 / (values.length - 1));
+    const y = v => 185 - v * 1.55;
+    const points = values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+    const targets = values.map((v, i) => `<circle cx="${x(i)}" cy="${y(v)}" r="9" fill="transparent" tabindex="0"><title>Trades ${i + 1}–${i + windowSize}: ${v.toFixed(1)}% wins</title></circle>`).join('');
+    return `<section class="panel insight-panel"><div class="panel-head"><h3>Win-Rate Trend</h3><span class="muted small">Last 20 closed trades per point</span></div><div class="insight-line"><svg viewBox="0 0 720 210" preserveAspectRatio="none" role="img" aria-label="Rolling 20-trade win rate"><line x1="20" y1="${y(50)}" x2="700" y2="${y(50)}" stroke="var(--border)" stroke-dasharray="4 5"/><polyline points="${points}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>${targets}</svg></div><p class="muted small">Latest rolling win rate: ${values.at(-1).toFixed(1)}%</p></section>`;
+}
+
+/** Weekday net P&L, grouped by the recorded close date (UTC calendar date). */
+function weekdayPerformanceChart(trades) {
+    const totals = Array(7).fill(0);
+    const counts = Array(7).fill(0);
+    for (const trade of trades) {
+        const date = (trade.xdt || trade.dt || '').slice(0, 10);
+        const weekday = /^\d{4}-\d{2}-\d{2}$/.test(date) ? new Date(`${date}T12:00:00Z`).getUTCDay() : NaN;
+        if (!Number.isInteger(weekday)) continue;
+        totals[weekday] += pnl(trade);
+        counts[weekday]++;
+    }
+    const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return comparisonBars('P&L by weekday', names.map((name, i) => ({ name, value: totals[i], count: counts[i] })), 'Net P&L by close weekday · includes fees');
+}
+
+/** Per-instrument net P&L, using only instruments with recorded closed trades. */
+function instrumentPerformanceChart(trades) {
+    const groups = new Map();
+    for (const trade of trades) {
+        const symbol = String(trade.pair || trade.symbol || '').trim().toUpperCase();
+        if (!symbol) continue;
+        const item = groups.get(symbol) || { name: symbol, value: 0, count: 0 };
+        item.value += pnl(trade);
+        item.count++;
+        groups.set(symbol, item);
+    }
+    const ranked = [...groups.values()].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)).slice(0, 8);
+    return comparisonBars('P&L by instrument', ranked, 'Top 8 instruments by absolute net P&L');
+}
+
+/** Last six calendar months containing recorded closed trades. */
+function monthlyPerformanceChart(trades) {
+    const groups = new Map();
+    for (const trade of trades) {
+        const date = (trade.xdt || trade.dt || '').slice(0, 7);
+        if (!/^\d{4}-\d{2}$/.test(date)) continue;
+        const item = groups.get(date) || { name: date, value: 0, count: 0 };
+        item.value += pnl(trade);
+        item.count++;
+        groups.set(date, item);
+    }
+    const months = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(-6);
+    return comparisonBars('Monthly net P&L', months, 'Last 6 months with closed trades');
+}
+
+/** Shared horizontal bars with a common zero point and accessible exact values. */
+function comparisonBars(title, entries, subtitle) {
+    if (!entries.some(item => item.count)) {
+        return `<section class="panel insight-panel"><div class="panel-head"><h3>${title}</h3></div><div class="empty">No closed trades yet</div></section>`;
+    }
+    const maximum = Math.max(1, ...entries.map(item => Math.abs(item.value)));
+    const rows = entries.map(item => {
+        const value = item.value;
+        const width = Math.abs(value) / maximum * 50;
+        const left = value < 0 ? 50 - width : 50;
+        const colour = value < 0 ? 'var(--red)' : 'var(--green)';
+        const detail = `${item.name}: ${money(value)} · ${item.count} closed trade${item.count === 1 ? '' : 's'}`;
+        return `<div class="comparison-row" title="${esc(detail)}">
+            <span class="comparison-name" title="${esc(item.name)}">${esc(item.name)}</span>
+            <div class="comparison-track"><span class="comparison-zero"></span><span class="comparison-bar" style="left:${left}%;width:${width}%;background:${colour}"></span></div>
+            <span class="comparison-value ${value < 0 ? 'negative' : value > 0 ? 'positive' : ''}">${item.count ? money(value) : ''}</span>
+        </div>`;
+    }).join('');
+    return `<section class="panel insight-panel"><div class="panel-head"><h3>${title}</h3></div><p class="muted small comparison-description">${subtitle}</p><div class="comparison-chart">${rows}</div></section>`;
+}
+
+function curve(ts) {
+    if (!ts.length) return '<div class="empty">No Closed Trades Yet</div>';
+
+    const ordered = [...ts].sort((a, b) => String(a.xdt || a.dt || '').localeCompare(String(b.xdt || b.dt || '')));
+    const values = [0];
+    for (const trade of ordered) values.push(values.at(-1) + pnl(trade));
+
+    const low = Math.min(0, ...values);
+    const high = Math.max(0, ...values);
+    const range = high - low || 1;
+    const x = i => 28 + i * 664 / Math.max(1, values.length - 1);
+    const y = v => 258 - (v - low) / range * 220;
+    const baseline = y(0);
+    const points = values.map((v, i) => [x(i), y(v)]);
+    const sections = [];
+
+    // Split at exact zero crossings so profits and losses have distinct colours.
+    for (let i = 1; i < values.length; i++) {
+        const previous = values[i - 1];
+        const current = values[i];
+        const start = points[i - 1];
+        const end = points[i];
+        if ((previous < 0 && current > 0) || (previous > 0 && current < 0)) {
+            const fraction = -previous / (current - previous);
+            const crossing = [start[0] + (end[0] - start[0]) * fraction, baseline];
+            sections.push({ start, end: crossing, positive: previous > 0 });
+            sections.push({ start: crossing, end, positive: current > 0 });
+        } else {
+            sections.push({ start, end, positive: previous >= 0 && current >= 0 });
+        }
+    }
+
+    const shapes = sections.map(({ start, end, positive }) => {
+        const colour = positive ? '#32b84a' : '#ff515a';
+        const path = `M ${start[0]} ${baseline} L ${start[0]} ${start[1]} L ${end[0]} ${end[1]} L ${end[0]} ${baseline} Z`;
+        return `<path d="${path}" fill="${colour}" fill-opacity=".18" />`;
+    }).join('');
+    // Keep the entire P&L line in the user's chosen accent colour.
+    // The separate filled areas still indicate positive and negative P&L.
+    const linePath = points.map(([px, py], index) =>
+        `${index === 0 ? 'M' : 'L'} ${px} ${py}`
+    ).join(' ');
+    const strokes = `<path d="${linePath}" fill="none" stroke="var(--accent)"
+        stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />`;
+    const hoverData = values.map((value, i) => ({
+        x: x(i),
+        y: y(value),
+        amount: value,
+        date: i === 0 ? 'Starting Point' : String(ordered[i - 1].xdt || ordered[i - 1].dt || '').slice(0, 10)
+    }));
+    const encodedData = encodeURIComponent(JSON.stringify(hoverData));
+
+    return `<div class="cumulative-combined-chart" data-curve-points="${encodedData}">
+        <svg viewBox="0 0 720 290" role="img" aria-label="Cumulative P&L with accent-coloured line, green fill above zero and red fill below zero" preserveAspectRatio="xMidYMid meet">
+            <line x1="28" x2="692" y1="${baseline}" y2="${baseline}" stroke="var(--muted)" stroke-opacity=".65" stroke-width="1.2" />
+            ${shapes}
+            ${strokes}
+            <circle class="cumulative-hover-dot" cx="28" cy="${baseline}" r="5" visibility="hidden" />
+        </svg>
+        <div class="cumulative-hover-tooltip" hidden></div>
+    </div>`;
+}
+
 function performanceRadar(ts) {
     if (!ts.length)
         return '<div class="empty">Record closed trades to see your performance score</div>';
@@ -130,22 +362,75 @@ function instrumentChart(ts) {
     } const rows = [...totals].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6); if (!rows.length)
         return '<div class="empty">No closed trades yet</div>'; const max = Math.max(...rows.map(x => Math.abs(x[1])), 1); return `<div class="instrument-chart">${rows.map(([name, value]) => `<div class="instrument-chart-row"><span title="${esc(name)}">${esc(name)}</span><div class="instrument-chart-track"><div class="instrument-chart-fill ${value < 0 ? 'is-loss' : ''}" style="width:${Math.max(1, Math.abs(value) / max * 100)}%"></div></div><strong class="${value >= 0 ? 'positive' : 'negative'}">${value > 0 ? '+' : ''}${money(value)}</strong></div>`).join('')}</div>`;
 }
+// Logos use TradingView's publicly served symbol assets when a matching path is known.
+// TradingView does not publish a guaranteed complete symbol-logo mapping API.
 function assetIcon(symbol) {
-    const raw = String(symbol || '').toUpperCase().trim(), ticker = raw.split(':').pop().replace(/\.[A-Z0-9]+$/, '').replace(/[^A-Z0-9!]/g, ''), base = ticker.replace(/1!$/, '1'); let paths = []; if (SYMBOL_LOGOS[ticker] || SYMBOL_LOGOS[base])
-        paths.push(SYMBOL_LOGOS[ticker] || SYMBOL_LOGOS[base]); if (!SYMBOL_LOGOS[ticker] && /^[A-Z]{6}$/.test(ticker) && CURRENCY[ticker.slice(0, 3)] && CURRENCY[ticker.slice(3)]) {
-            const a = CURRENCY[ticker.slice(0, 3)], b = CURRENCY[ticker.slice(3)];
-            return `<span class="asset-pair" aria-hidden="true"><img src="https://flagcdn.com/w40/${a}.png" onerror="this.style.display='none'"><img src="https://flagcdn.com/w40/${b}.png" onerror="this.style.display='none'"></span>`;
-        } if (/^[A-Z0-9]{1,15}$/.test(ticker)) {
-            paths.push(ticker.toLowerCase());
-            paths.push('crypto/' + ticker.toLowerCase());
-            paths.push('country/' + ticker.toLowerCase());
-        } const unique = [...new Set(paths)]; const urls = unique.map(x => 'https://s3-symbol-logo.tradingview.com/' + x + '.svg'); return `<span class="asset-icon" aria-hidden="true"><span class="asset-fallback">${esc(ticker.slice(0, 2) || '•')}</span>${urls.length ? `<img loading="lazy" alt="" src="${urls[0]}" data-logo-options="${esc(JSON.stringify(urls.slice(1)))}" onerror="try{const q=JSON.parse(this.dataset.logoOptions||'[]');if(q.length){this.src=q.shift();this.dataset.logoOptions=JSON.stringify(q)}else this.remove()}catch(e){this.remove()}">` : ''}</span>`;
+    const raw = String(symbol || '').trim().toUpperCase();
+    if (!raw) return '<span class="asset-icon asset-icon-empty" aria-hidden="true"></span>';
+    const ticker = raw.split(':').pop().replace(/\.[A-Z0-9]+$/, '').replace(/[^A-Z0-9!]/g, '');
+    const base = ticker.replace(/1!$/, '1');
+    const logoRoot = 'https://s3-symbol-logo.tradingview.com/';
+    const paths = [];
+    if (SYMBOL_LOGOS[ticker] || SYMBOL_LOGOS[base]) paths.push(SYMBOL_LOGOS[ticker] || SYMBOL_LOGOS[base]);
+    const isForex = /^[A-Z]{6}$/.test(ticker) && CURRENCY[ticker.slice(0, 3)] && CURRENCY[ticker.slice(3)];
+    if (isForex && !SYMBOL_LOGOS[ticker]) {
+        const currencyIcon = code => {
+            const country = CURRENCY[code];
+            const sources = [logoRoot + 'country/' + country + '.svg', 'https://flagcdn.com/w40/' + country + '.png'];
+            return logoImage(sources, code);
+        };
+        return `<span class="asset-pair" aria-hidden="true">${currencyIcon(ticker.slice(0, 3))}${currencyIcon(ticker.slice(3))}</span>`;
+    }
+    if (/^[A-Z0-9]{1,15}$/.test(ticker)) {
+        paths.push(ticker.toLowerCase(), 'crypto/' + ticker.toLowerCase());
+    }
+    const urls = [...new Set(paths)].map(path => logoRoot + path + '.svg');
+    return `<span class="asset-icon" aria-hidden="true"><span class="asset-fallback">${esc(ticker.slice(0, 2) || '')}</span>${logoImage(urls, ticker)}</span>`;
+}
+function logoImage(urls, label) {
+    if (!urls.length) return '';
+    // All URL candidates are built from fixed, trusted hosts and sanitised symbol paths.
+    const options = esc(JSON.stringify(urls.slice(1)));
+    return `<img loading="lazy" alt="" src="${esc(urls[0])}" data-logo-options="${options}" onerror="try{const q=JSON.parse(this.dataset.logoOptions||'[]');if(q.length){this.src=q.shift();this.dataset.logoOptions=JSON.stringify(q)}else this.remove()}catch(e){this.remove()}">`;
 }
 function table(ts) {
-    if (!ts.length)
-        return '<div class="empty">No trades to display. Add a trade to get started.</div>'; return `<div class="tablewrap"><table><thead><tr><th>Date</th><th>Instrument</th><th>Direction</th><th>Account</th><th>Size</th><th>Result</th><th class="right">Net P&L</th></tr></thead><tbody>${ts.map(t => `<tr class="clickable" data-edit="${esc(t.id)}"><td>${esc(t.dt.slice(0, 10))}</td><td><span class="instrument">${assetIcon(t.pair)}<strong>${esc(t.pair)}</strong></span></td><td><span class="result ${t.side === 'Sell' ? 'short' : 'long'}">${t.side === 'Sell' ? 'Short' : 'Long'}</span></td><td>${esc(acctName(t.account))}</td><td>${esc(t.lots)}</td><td><span class="result ${labelResult(t).toLowerCase()}">${labelResult(t)}</span></td><td class="right ${closed(t) ? pnl(t) > 0 ? 'positive' : pnl(t) < 0 ? 'negative' : '' : ''}">${closed(t) ? money(pnl(t)) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
+    if (!ts.length) return '<div class="empty">No trades to display. Add a trade to get started.</div>';
+    const show = value => value === null || value === undefined || String(value).trim() === '' || String(value).trim() === '—' ? '' : esc(String(value));
+    const row = t => {
+        const direction = t.side === 'Sell' ? 'Short' : t.side === 'Buy' ? 'Long' : '';
+        const result = labelResult(t);
+        const accountName = acctName(t.account);
+        return `<tr class="clickable" data-edit="${esc(t.id)}">
+            <td>${show((t.dt || '').slice(0, 10))}</td>
+            <td><span class="instrument">${assetIcon(t.pair)}<strong>${show(t.pair)}</strong></span></td>
+            <td>${direction ? `<span class="result ${direction.toLowerCase()}">${direction}</span>` : ''}</td>
+            <td>${show(accountName)}</td>
+            <td>${show(t.lots)}</td>
+            <td>${result && result !== '—' ? `<span class="result ${esc(result.toLowerCase())}">${esc(result)}</span>` : ''}</td>
+            <td class="right ${closed(t) ? pnl(t) > 0 ? 'positive' : pnl(t) < 0 ? 'negative' : '' : ''}">${closed(t) ? money(pnl(t)) : ''}</td>
+        </tr>`;
+    };
+    return `<div class="tablewrap"><table class="trades-table"><colgroup><col class="col-date"><col class="col-instrument"><col class="col-direction"><col class="col-account"><col class="col-size"><col class="col-result"><col class="col-pnl"></colgroup><thead><tr><th>Date</th><th>Instrument</th><th>Direction</th><th>Account</th><th>Size</th><th>Result</th><th class="right">Net P&L</th></tr></thead><tbody>${ts.map(row).join('')}</tbody></table></div>`;
 }
-function tradesPage() { return `<div class="pagehead"><div><h2>Trade history</h2><div class="muted">Search, record and review your trades.</div></div><div><button type="button" class="btn" data-action="import">Import</button> <button type="button" class="btn" data-action="export">Export</button></div></div><div class="toolbar"><input id="search" placeholder="Search instruments, notes…" value="${esc(search)}"><select id="result-filter"><option value="all">All results</option>${['open', 'win', 'loss', 'breakeven'].map(v => `<option value="${v}" ${filter === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><span class="muted small">${filtered().length} trades</span></div>${table(filtered().sort((a, b) => b.dt.localeCompare(a.dt)))}`; }
+function tradeHistorySummary(trades) {
+    const finished = trades.filter(closed);
+    const net = finished.reduce((total, trade) => total + pnl(trade), 0);
+    const best = finished.length ? Math.max(...finished.map(pnl)) : null;
+    const worst = finished.length ? Math.min(...finished.map(pnl)) : null;
+    const selectedAccounts = accounts().filter(a => account === 'all' || a.id === account);
+    const balance = selectedAccounts.reduce((total, a) => {
+        const flows = Array.isArray(a.flows) ? a.flows : [];
+        return total + num(a.startingBalance) + flows.reduce((sum, f) => sum + (f.type === 'deposit' ? num(f.amount) : f.type === 'withdrawal' ? -num(f.amount) : 0), 0);
+    }, 0) + data.trades.filter(t => closed(t) && (account === 'all' || t.account === account)).reduce((sum, t) => sum + pnl(t), 0);
+    const balanceText = selectedAccounts.length ? money(balance) : '';
+    return `<div class="trade-summary-grid">
+        <div class="trade-summary-item"><span>Net P&L</span><strong class="${net >= 0 ? 'positive' : 'negative'}">${finished.length ? money(net) : ''}</strong></div>
+        <div class="trade-summary-item"><span>Best Trade</span><strong class="positive">${best === null ? '' : money(best)}</strong></div>
+        <div class="trade-summary-item"><span>Worst Trade</span><strong class="negative">${worst === null ? '' : money(worst)}</strong></div>
+    </div>`;
+}
+
+function tradesPage() { const shown = filtered(); return `<div class="pagehead"><div><h2>Trade History</h2><div class="muted">Search, record and review your trades.</div></div><div><button type="button" class="btn" data-action="import">Import</button> <button type="button" class="btn" data-action="export">Export</button></div></div><div class="toolbar"><input id="search" placeholder="Search instruments, notes…" value="${esc(search)}"><select id="result-filter"><option value="all">All results</option>${['open', 'win', 'loss', 'breakeven'].map(v => `<option value="${v}" ${filter === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><span class="muted small">${shown.length} trades</span></div>${tradeHistorySummary(shown)}${table(filtered().sort((a, b) => b.dt.localeCompare(a.dt)))}`; }
 function calendarPage(embedded = false) {
     const first = new Date(year, month, 1).getDay(), days = new Date(year, month + 1, 0).getDate(), byDay = {}; for (const t of allClosed()) {
         const day = (t.xdt || t.dt).slice(0, 10);
@@ -171,8 +456,8 @@ function calendarPage(embedded = false) {
             weekTrades += ts.length;
             cells.push(`<button type="button" class="day ${ts.length ? sum > 0 ? 'win' : sum < 0 ? 'loss' : 'even' : ''} ${selectedDay === date ? 'selected' : ''}" data-day="${date}"><span class="number">${d}</span>${ts.length ? `<strong class="amount">${sum > 0 ? '+' : ''}${money(sum)}</strong><span class="small">${ts.length} trade${ts.length === 1 ? '' : 's'}</span>` : ''}</button>`);
         }
-        cells.push(`<div class="week-total"><strong class="${weekTotal > 0 ? 'positive' : weekTotal < 0 ? 'negative' : ''}">${weekTrades ? `${weekTotal > 0 ? '+' : ''}${money(weekTotal)}` : '—'}</strong><span>${weekTrades} trade${weekTrades === 1 ? '' : 's'}</span></div>`);
-    } const chosen = byDay[selectedDay] || []; return `${embedded ? '' : '<div class="pagehead"><div><h2>Trading calendar</h2><div class="muted">Daily results at a glance.</div></div></div>'}<section class="panel calendar-panel"><div class="calendar-head"><button type="button" class="btn" data-action="prev-month" aria-label="Previous month">←</button><h3>${new Date(year, month, 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' })}</h3><button type="button" class="btn" data-action="next-month" aria-label="Next month">→</button></div><div class="calendar-scroll"><div class="calgrid">${cells.join('')}</div></div><div class="calendar-footer"><span>${tradeDays} trading days · ${greenDays} green</span><span>Month: <strong class="${monthly >= 0 ? 'positive' : 'negative'}">${monthly > 0 ? '+' : ''}${money(monthly)}</strong></span></div></section>${selectedDay ? `<section class="selected-day"><div class="panel-head"><h3>${esc(selectedDay)} · ${chosen.length} trades</h3><button type="button" class="btn" data-action="clear-day">Clear selection</button></div>${table(chosen)}</section>` : ''}`;
+        cells.push(`<div class="week-total"><strong class="${weekTotal > 0 ? 'positive' : weekTotal < 0 ? 'negative' : ''}">${weekTrades ? `${weekTotal > 0 ? '+' : ''}${money(weekTotal)}` : ''}</strong><span>${weekTrades ? `${weekTrades} trade${weekTrades === 1 ? '' : 's'}` : ''}</span></div>`);
+    } const chosen = byDay[selectedDay] || []; return `${embedded ? '' : '<div class="pagehead"><div><h2>Trading Calendar</h2><div class="muted">Daily results at a glance.</div></div></div>'}<section class="panel calendar-panel"><div class="calendar-head calendar-picker" aria-label="Choose calendar month and year"><label class="calendar-picker-field"><select id="calendar-month" aria-label="Calendar month">${Array.from({ length: 12 }, (_, i) => `<option value="${i}" ${i === month ? 'selected' : ''}>${new Date(2024, i, 1).toLocaleString('en-GB', { month: 'long' })}</option>`).join('')}</select></label><label class="calendar-picker-field"><select id="calendar-year" aria-label="Calendar year">${Array.from({ length: 201 }, (_, i) => 1900 + i).map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></label></div><div class="calendar-scroll"><div class="calgrid">${cells.join('')}</div></div><div class="calendar-footer"><span>${tradeDays} trading days · ${greenDays} green</span><span>Month: <strong class="${monthly >= 0 ? 'positive' : 'negative'}">${monthly > 0 ? '+' : ''}${money(monthly)}</strong></span></div></section>${selectedDay ? `<section class="selected-day"><div class="panel-head"><h3>${esc(selectedDay)} · ${chosen.length} trades</h3><button type="button" class="btn" data-action="clear-day">Clear selection</button></div>${table(chosen)}</section>` : ''}`;
 }
 function accountFigures(a) {
     const flows = Array.isArray(a.flows) ? a.flows : [];
@@ -183,7 +468,7 @@ function accountFigures(a) {
     const starting = num(a.startingBalance);
     return { deposits, withdrawals, net, balance: starting + deposits - withdrawals + net, count: trades.length };
 }
-function settingsPage() { const prefs = data.preferences || {}; return `<div class="pagehead"><div><h2>Settings</h2><div class="muted">Manage your trading accounts and journal.</div></div></div><div class="settings-stack"><section class="panel"><div class="panel-head"><h3>Trading accounts</h3><button type="button" class="btn" data-action="add-account">+ Add account</button></div><div class="account-list">${accounts().map(a => { const f = accountFigures(a); return `<article class="account-card"><div class="account-card-head"><div><strong>${esc(a.name)}</strong><div class="small muted">${esc(a.broker || 'Broker not set')} · ${esc(a.type || 'Other')}${a.currency ? ' · ' + esc(a.currency) : ''}</div></div><button type="button" class="btn" data-account-edit="${esc(a.id)}">Edit</button></div><div class="account-figures"><div><span>Estimated balance</span><strong>${money(f.balance)}</strong></div><div><span>Starting balance</span><strong>${money(a.startingBalance)}</strong></div><div><span>Deposits</span><strong>${money(f.deposits)}</strong></div><div><span>Withdrawals</span><strong>${money(f.withdrawals)}</strong></div><div><span>Closed trade P&L</span><strong class="${f.net >= 0 ? 'positive' : 'negative'}">${money(f.net)}</strong></div><div><span>Closed trades</span><strong>${f.count}</strong></div></div><div class="account-foot"><span class="small muted">Calculated from recorded activity, not a live broker balance.</span><button type="button" class="btn" data-account-flow="${esc(a.id)}">Deposit / withdrawal</button></div></article>`; }).join('') || '<p class="muted">No accounts yet.</p>'}</div></section><div class="settings-lower"><section class="panel settings-appearance"><h3>Appearance</h3><div class="field"><label for="theme">Theme</label><select id="theme"><option value="light" ${prefs.theme !== 'dark' ? 'selected' : ''}>Light</option><option value="dark" ${prefs.theme === 'dark' ? 'selected' : ''}>Dark (black)</option></select></div><div class="field"><label for="accent">Custom accent colour</label><div class="accent-row"><input id="accent" type="color" value="${/^#[0-9a-fA-F]{6}$/.test(prefs.accent || '') ? prefs.accent : '#2563eb'}"><button type="button" class="btn" data-action="reset-accent">Reset colour</button></div></div><div class="field"><label for="quote">Dashboard quote</label><textarea id="quote" maxlength="180" placeholder="Your trading quote…">${esc(prefs.quote || '')}</textarea><button type="button" class="btn" data-action="save-quote">Save quote</button></div></section><section class="panel settings-data"><h3>Data & account</h3><p class="muted">Back up your journal or import existing trades.</p><div class="toolbar"><button type="button" class="btn" data-action="export">Export backup</button><button type="button" class="btn" data-action="import">Import file</button></div><button type="button" class="btn danger" data-action="signout">Sign out</button><div class="risk-disclaimer"><strong>Risk Disclaimer:</strong> Trading in financial markets and leveraged instruments involves risk, including capital loss. Pipfolio is a trade journaling and analytics platform for informational purposes only, not financial advice, investment recommendations or trading signals. Trading decisions are at your own risk. Past performance does not guarantee future results. Assess circumstances and practise responsible risk management.</div></section></div></div>`; }
+function settingsPage() { const prefs = data.preferences || {}; return `<div class="pagehead"><div><h2>Settings</h2><div class="muted">Manage your trading accounts and journal.</div></div></div><div class="settings-stack"><section class="panel"><div class="panel-head"><h3>Trading Accounts</h3><button type="button" class="btn" data-action="add-account">+ Add account</button></div><div class="account-list">${accounts().map(a => { const f = accountFigures(a); return `<article class="account-card"><div class="account-card-head"><div><strong>${esc(a.name)}</strong><div class="small muted">${esc(a.broker || 'Broker not set')} · ${esc(a.type || 'Other')}${a.currency ? ' · ' + esc(a.currency) : ''}</div></div><button type="button" class="btn" data-account-edit="${esc(a.id)}">Edit</button></div><div class="account-figures"><div><span>Estimated balance</span><strong>${money(f.balance)}</strong></div><div><span>Starting balance</span><strong>${money(a.startingBalance)}</strong></div><div><span>Deposits</span><strong>${money(f.deposits)}</strong></div><div><span>Withdrawals</span><strong>${money(f.withdrawals)}</strong></div><div><span>Closed trade P&L</span><strong class="${f.net >= 0 ? 'positive' : 'negative'}">${money(f.net)}</strong></div><div><span>Closed trades</span><strong>${f.count}</strong></div></div><div class="account-foot"><span class="small muted">Calculated from recorded activity, not a live broker balance.</span><button type="button" class="btn" data-account-flow="${esc(a.id)}">Deposit / withdrawal</button></div></article>`; }).join('') || '<p class="muted">No accounts yet.</p>'}</div></section><div class="settings-lower"><section class="panel settings-appearance"><h3>Appearance</h3><div class="field"><label for="theme">Theme</label><select id="theme"><option value="light" ${prefs.theme !== 'dark' ? 'selected' : ''}>Light</option><option value="dark" ${prefs.theme === 'dark' ? 'selected' : ''}>Dark (black)</option></select></div><div class="field"><label for="accent">Custom accent colour</label><div class="accent-row"><input id="accent" type="color" value="${/^#[0-9a-fA-F]{6}$/.test(prefs.accent || '') ? prefs.accent : '#2563eb'}"><button type="button" class="btn" data-action="reset-accent">Reset colour</button></div></div><div class="field"><label for="quote">Dashboard quote</label><textarea id="quote" maxlength="180" placeholder="Your trading quote…">${esc(prefs.quote || '')}</textarea><button type="button" class="btn" data-action="save-quote">Save quote</button></div></section><section class="panel settings-data"><h3>Data & Account</h3><p class="muted">Back up your journal or import existing trades.</p><div class="toolbar"><button type="button" class="btn" data-action="export">Export backup</button><button type="button" class="btn" data-action="import">Import file</button></div><div class="account-danger-actions"><button type="button" class="btn" data-action="signout">Sign Out</button><button type="button" class="btn danger" data-action="erase-journal">Erase Journal</button><button type="button" class="btn danger" data-action="delete-profile">Delete Account</button></div><div class="risk-disclaimer"><strong>Risk Disclaimer:</strong> Trading in financial markets and leveraged instruments involves risk, including capital loss. Pipfolio is a trade journaling and analytics platform for informational purposes only, not financial advice, investment recommendations or trading signals. Trading decisions are at your own risk. Past performance does not guarantee future results. Assess circumstances and practise responsible risk management.</div></section></div></div>`; }
 function openModal(title, body, footer = '') { if (modal.open) modal.close(); modal.className = 'dialog'; modal.innerHTML = `<div class="dialog-head"><h3>${esc(title)}</h3><button type="button" class="btn" data-action="close">✕</button></div><div class="dialog-body">${body}</div>${footer ? `<div class="dialog-foot">${footer}</div>` : ''}`; modal.showModal(); }
 function field(name, label, value = '', type = 'text', extra = '') { return `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}" ${extra}></div>`; }
 function tradeEditor(id) {
@@ -192,7 +477,7 @@ function tradeEditor(id) {
         view = 'settings';
         render();
         return;
-    } const v = t || { account: account !== 'all' ? account : accounts()[0].id, dt: now, side: 'Buy', lots: 0.01, comm: 0, charges: 0 }; const body = `<form id="trade-form" class="form-grid"><div class="field"><label>Account</label><select name="account">${accounts().map(a => `<option value="${esc(a.id)}" ${v.account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>${field('pair', 'Instrument', v.pair || '', 'text', 'required maxlength="20" placeholder="XAUUSD"')}<div class="field"><label>Direction</label><select name="side"><option value="Buy" ${v.side === 'Buy' ? 'selected' : ''}>Buy / Long</option><option value="Sell" ${v.side === 'Sell' ? 'selected' : ''}>Sell / Short</option></select></div>${field('lots', 'Position size (lots)', v.lots, 'number', 'required min="0.000001" step="any"')}${field('dt', 'Entry date and time', v.dt?.slice(0, 16) || now, 'datetime-local', 'required')}${field('xdt', 'Exit date and time', v.xdt?.slice(0, 16) || '', 'datetime-local')}${field('entry', 'Entry price', v.entry ?? '', 'number', 'required min="0.00000001" step="any"')}${field('exit', 'Exit price (optional)', v.exit ?? '', 'number', 'min="0.00000001" step="any"')}${field('pl', 'Gross P&L (optional)', v.pl ?? '', 'number', 'step="any"')}${field('comm', 'Commission', v.comm ?? 0, 'number', 'min="0" step="any"')}${field('charges', 'Other fees', v.charges ?? 0, 'number', 'min="0" step="any"')}${field('setup', 'Strategy / setup', v.setup || '')}<div class="field full"><label>Notes</label><textarea name="notes" maxlength="5000">${esc(v.notes || '')}</textarea></div><div class="field full"><label>Trade screenshots</label><input id="trade-screenshot-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><div class="small muted">Add screenshots or remove them individually. Images are saved with this trade.</div><div id="screenshot-list" class="screenshot-list"></div></div></form>`; openModal(t ? 'Edit trade' : 'Add trade', body, `${t ? '<button type="button" class="btn danger" data-action="delete-trade">Delete trade</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-trade">Save trade</button>`); modal.dataset.trade = id || ''; screenshotDraft = Array.isArray(v.screenshots) ? structuredClone(v.screenshots) : []; renderScreenshots();
+    } const v = t || { account: account !== 'all' ? account : accounts()[0].id, dt: now, side: 'Buy', lots: 0.01, comm: 0, charges: 0 }; const body = `<form id="trade-form" class="form-grid"><div class="field"><label>Account</label><select name="account">${accounts().map(a => `<option value="${esc(a.id)}" ${v.account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>${field('pair', 'Instrument', v.pair || '', 'text', 'required maxlength="20" placeholder="XAUUSD"')}<div class="field"><label>Direction</label><select name="side"><option value="Buy" ${v.side === 'Buy' ? 'selected' : ''}>Buy / Long</option><option value="Sell" ${v.side === 'Sell' ? 'selected' : ''}>Sell / Short</option></select></div>${field('lots', 'Position size (lots)', v.lots, 'number', 'required min="0.000001" step="any"')}${field('dt', 'Entry date and time', v.dt?.slice(0, 16) || now, 'datetime-local', 'required')}${field('xdt', 'Exit date and time', v.xdt?.slice(0, 16) || '', 'datetime-local')}${field('entry', 'Entry price', v.entry ?? '', 'number', 'required min="0.00000001" step="any"')}${field('exit', 'Exit price (optional)', v.exit ?? '', 'number', 'min="0.00000001" step="any"')}${field('pl', 'Gross P&L (optional)', v.pl ?? '', 'number', 'step="any"')}${field('comm', 'Commission', v.comm ?? 0, 'number', 'min="0" step="any"')}${field('charges', 'Other fees', v.charges ?? 0, 'number', 'min="0" step="any"')}${field('setup', 'Strategy / setup', v.setup || '')}${field('stopLoss', 'Planned stop loss (optional)', v.stopLoss ?? '', 'number', 'step="any"')}${field('takeProfit', 'Planned take profit (optional)', v.takeProfit ?? '', 'number', 'step="any"')}${field('tags', 'Tags (comma-separated)', v.tags || '', 'text', 'maxlength="250"')}${field('mistakes', 'Mistakes / lessons', v.mistakes || '', 'text', 'maxlength="500"')}<div class="field full"><label class="review-checkbox"><input type="checkbox" name="reviewed" value="yes" ${v.reviewed ? 'checked' : ''}> Mark this trade as reviewed</label></div><div class="field full"><label>Notes</label><textarea name="notes" maxlength="5000">${esc(v.notes || '')}</textarea></div><div class="field full"><label>Trade screenshots</label><input id="trade-screenshot-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><div class="small muted">Add screenshots or remove them individually. Images are saved with this trade.</div><div id="screenshot-list" class="screenshot-list"></div></div></form>`; openModal(t ? 'Edit trade' : 'Add trade', body, `${t ? '<button type="button" class="btn danger" data-action="delete-trade">Delete trade</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-trade">Save trade</button>`); modal.dataset.trade = id || ''; screenshotDraft = Array.isArray(v.screenshots) ? structuredClone(v.screenshots) : []; renderScreenshots();
 }
 function screenshotSrc(item) { return typeof item === 'string' ? item : (item?.data || item?.url || item?.src || ''); }
 function renderScreenshots() {
@@ -228,7 +513,7 @@ async function saveTrade() {
     const form = document.getElementById('trade-form'); if (!form.reportValidity())
         return; const f = new FormData(form), get = k => String(f.get(k) || '').trim(), id = modal.dataset.trade, old = data.trades.find(t => t.id === id), dt = get('dt'), xdt = get('xdt'); if (xdt && xdt < dt)
         return toast('Exit cannot be before entry.'); if (get('pl') && !xdt && !get('exit'))
-        return toast('Enter an exit date or exit price for a closed trade.'); const n = clone(), t = { ...(old || {}), id: id || uid(), account: get('account'), pair: get('pair').toUpperCase(), side: get('side'), lots: Number(get('lots')), dt, xdt, entry: Number(get('entry')), exit: get('exit') ? Number(get('exit')) : null, pl: get('pl') ? Number(get('pl')) : null, comm: Number(get('comm') || 0), charges: Number(get('charges') || 0), setup: get('setup'), notes: get('notes'), updated: Date.now(), created: old?.created || Date.now(), sample: old?.sample || false, screenshots: structuredClone(screenshotDraft) }; if (!(t.entry > 0 && t.lots > 0))
+        return toast('Enter an exit date or exit price for a closed trade.'); const n = clone(), t = { ...(old || {}), id: id || uid(), account: get('account'), pair: get('pair').toUpperCase(), side: get('side'), lots: Number(get('lots')), dt, xdt, entry: Number(get('entry')), exit: get('exit') ? Number(get('exit')) : null, pl: get('pl') ? Number(get('pl')) : null, comm: Number(get('comm') || 0), charges: Number(get('charges') || 0), setup: get('setup'), stopLoss: get('stopLoss') ? Number(get('stopLoss')) : null, takeProfit: get('takeProfit') ? Number(get('takeProfit')) : null, tags: get('tags'), mistakes: get('mistakes'), reviewed: f.get('reviewed') === 'yes', notes: get('notes'), updated: Date.now(), created: old?.created || Date.now(), sample: old?.sample || false, screenshots: structuredClone(screenshotDraft) }; if (!(t.entry > 0 && t.lots > 0))
         return toast('Entry price and position size must be greater than zero.'); if (t.exit !== null && t.exit <= 0)
         return toast('Exit price must be greater than zero.'); if (!t.xdt && t.exit !== null)
         t.xdt = t.dt; if (t.xdt && t.pl === null)
@@ -254,7 +539,7 @@ async function saveAccount() {
 }
 function accountFlowEditor(id) {
     const a = accounts().find(x => x.id === id); if (!a)
-        return; const flows = Array.isArray(a.flows) ? a.flows : []; openModal('Deposits and withdrawals — ' + a.name, `<form id="flow-form" class="form-grid"><div class="field"><label>Transaction</label><select name="type"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option></select></div>${field('amount', 'Amount', '', 'number', 'required min="0.01" step="0.01"')}${field('date', 'Date', new Date().toISOString().slice(0, 10), 'date', 'required')}<div class="field full"><label>Note (optional)</label><input name="note" maxlength="140"></div></form><div class="flow-history"><h4>Transaction history</h4>${flows.length ? flows.map(f => `<div class="flow-row"><div><strong>${f.type === 'withdrawal' ? 'Withdrawal' : 'Deposit'} · ${money(f.amount)}</strong><div class="small muted">${esc(f.date || '')}${f.note ? ' · ' + esc(f.note) : ''}</div></div><button class="btn" type="button" data-remove-flow="${esc(f.id)}" aria-label="Delete transaction">Remove</button></div>`).join('') : '<p class="small muted">No deposits or withdrawals recorded.</p>'}</div>`, `<button type="button" class="btn" data-action="close">Close</button><button type="button" class="btn primary" data-action="save-flow">Add transaction</button>`); modal.dataset.account = id;
+        return; const flows = Array.isArray(a.flows) ? a.flows : []; openModal('Deposits and withdrawals — ' + a.name, `<form id="flow-form" class="form-grid"><div class="field"><label>Transaction</label><select name="type"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option></select></div>${field('amount', 'Amount', '', 'number', 'required min="0.01" step="0.01"')}${field('date', 'Date', new Date().toISOString().slice(0, 10), 'date', 'required')}<div class="field full"><label>Note (optional)</label><input name="note" maxlength="140"></div></form><div class="flow-history"><h4>Transaction History</h4>${flows.length ? flows.map(f => `<div class="flow-row"><div><strong>${f.type === 'withdrawal' ? 'Withdrawal' : 'Deposit'} · ${money(f.amount)}</strong><div class="small muted">${esc(f.date || '')}${f.note ? ' · ' + esc(f.note) : ''}</div></div><button class="btn" type="button" data-remove-flow="${esc(f.id)}" aria-label="Delete transaction">Remove</button></div>`).join('') : '<p class="small muted">No deposits or withdrawals recorded.</p>'}</div>`, `<button type="button" class="btn" data-action="close">Close</button><button type="button" class="btn primary" data-action="save-flow">Add transaction</button>`); modal.dataset.account = id;
 }
 async function saveFlow() {
     const f = document.getElementById('flow-form'); if (!f?.reportValidity())
@@ -466,7 +751,7 @@ app.addEventListener('click', async (e) => {
         tradeEditor(edit.dataset.edit);
         return;
     } const day = e.target.closest('[data-day]'); if (day) {
-        selectedDay = day.dataset.day;
+        selectedDay = selectedDay === day.dataset.day ? null : day.dataset.day;
         render();
         return;
     } const acc = e.target.closest('[data-account-edit]'); if (acc) {
@@ -481,6 +766,14 @@ app.addEventListener('click', async (e) => {
     } const action = e.target.closest('[data-action]')?.dataset.action; if (!action)
         return;
     e.preventDefault();
+    if (action === 'calendar-today') {
+        const today = new Date();
+        month = today.getMonth();
+        year = today.getFullYear();
+        selectedDay = '';
+        render();
+        return;
+    }
     if (action === 'add')
         tradeEditor(); if (action === 'import')
         document.getElementById('upload')?.click(); if (action === 'export')
@@ -514,6 +807,48 @@ app.addEventListener('click', async (e) => {
             n.preferences.accent = '#2563eb';
             if (await save(n))
                 toast('Accent colour reset');
+    if (action === 'erase-journal') {
+        if (!confirm('Erase all trades, screenshots, trading accounts and recorded transactions? This cannot be undone. Export a backup first.')) return;
+        const response = prompt('Type ERASE to permanently erase your journal:');
+        if (response !== 'ERASE') return;
+        const next = clone();
+        next.trades = [];
+        next.settings.accounts = [];
+        if (await save(next)) toast('Journal erased. Your login remains active.');
+        return;
+    }
+    if (action === 'delete-profile') {
+        if (!confirm('Permanently delete your Pipfolio account, journal, screenshots and all saved data? This cannot be undone. Export a backup first.')) return;
+        if (prompt('Type DELETE to permanently delete your account:') !== 'DELETE') return;
+        try {
+            // Requires the authenticated server-side Edge Function supplied with this package.
+            // Never place the service-role key in browser JavaScript.
+            const { data: sessionResult, error: sessionError } = await db.auth.getSession();
+            if (sessionError || !sessionResult?.session) throw Error('Please sign in again.');
+            const response = await fetch(`${SUPABASE_URL}/functions/v1/delete-account`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': SUPABASE_KEY,
+                    'Authorization': `Bearer ${sessionResult.session.access_token}`
+                },
+                body: JSON.stringify({ confirmation: 'DELETE' })
+            });
+            if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw Error(body.error || 'Account deletion service unavailable. No deletion was confirmed.');
+            }
+            explicitSignOut = true;
+            await db.auth.signOut({ scope: 'local' });
+            user = null;
+            data = { version: 3, trades: [], settings: { accounts: [] }, preferences: { theme: 'light', accent: '#C0C0C0', quote: '' } };
+            auth();
+            toast('Account deleted.');
+        } catch (error) {
+            toast('Delete account failed: ' + error.message);
+        }
+        return;
+    }
         } if (action === 'signout') {
             if (!confirm('Sign out of Pipfolio?')) return;
             explicitSignOut = true;
@@ -562,6 +897,14 @@ app.addEventListener('submit', e => {
     }
 });
 app.addEventListener('change', async (e) => {
+    if (e.target.id === 'calendar-month' || e.target.id === 'calendar-year') {
+        const selected = Number(e.target.value);
+        if (e.target.id === 'calendar-month' && Number.isInteger(selected) && selected >= 0 && selected <= 11) month = selected;
+        if (e.target.id === 'calendar-year' && Number.isInteger(selected) && selected >= 1900 && selected <= 2100) year = selected;
+        selectedDay = '';
+        render();
+        return;
+    }
     if (e.target.id === 'account-filter') {
         account = e.target.value;
         render();
@@ -594,6 +937,37 @@ app.addEventListener('input', e => {
         e.target.focus();
         e.target.setSelectionRange(old, old);
     }
+});
+// One movable marker and one tooltip, instead of a marker at every trade.
+document.addEventListener('pointermove', event => {
+    const chart = event.target.closest?.('.cumulative-combined-chart');
+    if (!chart) return;
+    const svg = chart.querySelector('svg');
+    const dot = chart.querySelector('.cumulative-hover-dot');
+    const tooltip = chart.querySelector('.cumulative-hover-tooltip');
+    if (!svg || !dot || !tooltip) return;
+    const points = JSON.parse(decodeURIComponent(chart.dataset.curvePoints || '[]'));
+    if (!points.length) return;
+    const rect = svg.getBoundingClientRect();
+    const localX = (event.clientX - rect.left) * 720 / rect.width;
+    const nearest = points.reduce((best, point) =>
+        Math.abs(point.x - localX) < Math.abs(best.x - localX) ? point : best
+    );
+    dot.setAttribute('cx', nearest.x);
+    dot.setAttribute('cy', nearest.y);
+    dot.setAttribute('visibility', 'visible');
+    tooltip.hidden = false;
+    const amount = Number(nearest.amount);
+    tooltip.textContent = `${nearest.date} · Cumulative P&L: ${money(amount)}`;
+    tooltip.style.left = `${Math.max(8, Math.min(rect.width - 8, nearest.x / 720 * rect.width))}px`;
+    tooltip.style.top = `${nearest.y / 290 * rect.height}px`;
+});
+document.addEventListener('pointerout', event => {
+    const chart = event.target.closest?.('.cumulative-combined-chart');
+    if (!chart || (event.relatedTarget && chart.contains(event.relatedTarget))) return;
+    chart.querySelector('.cumulative-hover-dot')?.setAttribute('visibility', 'hidden');
+    const tooltip = chart.querySelector('.cumulative-hover-tooltip');
+    if (tooltip) tooltip.hidden = true;
 });
 document.getElementById('upload').addEventListener('change', e => { importFile(e.target.files[0]); e.target.value = ''; });
 init();

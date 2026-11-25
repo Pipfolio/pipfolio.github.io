@@ -21,16 +21,32 @@ function dateInputValue(value) {
     const pad = value => String(value).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
-function headerBalance() {
+// Convert legacy opening balances to deposits without changing account totals.
+// Idempotent: an account is converted only while startingBalance is non-zero.
+function migrateOpeningBalances(journal) {
+    let changed = false;
+    for (const a of journal.settings?.accounts || []) {
+        const opening = num(a.startingBalance);
+        if (!opening) continue;
+        a.flows = Array.isArray(a.flows) ? a.flows : [];
+        a.flows.unshift({
+            id: uid(), type: opening > 0 ? 'deposit' : 'withdrawal',
+            amount: Math.abs(opening), date: '', note: 'Opening balance (migrated)'
+        });
+        a.startingBalance = 0;
+        changed = true;
+    }
+    return changed;
+}
+function tradesBalance() {
     const selected = accounts().filter(a => account === 'all' || a.id === account);
-    if (!selected.length) return '';
+    if (!selected.length) return '<span class="trade-toolbar-balance muted" title="Add an account to calculate its balance">N/A</span>';
     const currencies = [...new Set(selected.map(a => a.currency || 'USD'))];
-    if (currencies.length !== 1) return '';
-    const figures = selected.map(a => accountFigures(a));
-    const total = figures.reduce((sum, f) => sum + f.balance, 0);
-    const baseline = figures.reduce((sum, f, i) => sum + num(selected[i].startingBalance) + f.deposits - f.withdrawals, 0);
-    const tone = total > baseline ? 'positive' : total < baseline ? 'negative' : '';
-    return `<span class="header-balance ${tone}" title="Estimated balance in ${esc(currencies[0])}; calculated from starting balance, deposits, withdrawals and closed trade P&L. Not a live broker balance.">${esc(money(total))}</span>`;
+    if (currencies.length !== 1) return '<span class="trade-toolbar-balance muted" title="Select a single currency account to see its balance">N/A</span>';
+    const balance = selected.reduce((sum, a) => sum + accountFigures(a).balance, 0);
+    const baseline = 0;
+    const tone = balance > baseline ? 'positive' : balance < baseline ? 'negative' : '';
+    return `<span class="trade-toolbar-balance ${tone}" title="Estimated current balance (${esc(currencies[0])}): deposits − withdrawals + closed trade net P&amp;L; excludes open positions">${esc(money(balance))}</span>`;
 }
 const uid = () => crypto.randomUUID?.() || 'trade-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 const local = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
@@ -49,12 +65,13 @@ async function load() {
             data = r.data.payload;
             if (!Array.isArray(data.trades) || !data.settings)
                 throw Error('Your saved journal has an unsupported format. No data was changed.');
-        } data.settings.accounts ||= []; data.preferences ||= { theme: 'light', accent: '#2563eb', quote: '' }; theme(); render();
+        } data.settings.accounts ||= []; data.preferences ||= { theme: 'light', accent: '#2563eb', quote: '' }; if (migrateOpeningBalances(data)) { await save(data); } theme(); render();
 }
 async function save(next) {
     if (busy)
         return false; busy = true; try {
             const payload = structuredClone(next);
+            migrateOpeningBalances(payload);
             payload.version = 3;
             payload.preferences ||= { theme: 'light', accent: '#C0C0C0', quote: '' };
             payload.settings ||= { accounts: [] };
@@ -80,7 +97,7 @@ async function save(next) {
 }
 const clone = () => structuredClone(data);
 function icons(name) { const paths = { dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>', trades: '<path d="M4 6h16M4 12h16M4 18h16"/>', calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>' }; return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`; }
-function shell(inner) { app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand"><img class="brand-icon" src="assets/pipfolio-logo.png" alt="P"><span>ipfolio</span></div><div class="header-right">${headerBalance()}<nav class="nav" aria-label="Main navigation">${['dashboard', 'trades', 'calendar', 'settings'].map(v => `<button type="button" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</nav><div class="top-actions">${view !== 'settings' ? `<select id="account-filter" aria-label="Select trading account"><option value="all">All accounts</option>${accounts().map(a => `<option value="${esc(a.id)}" ${account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn primary" data-action="add">+ Add trade</button></div></div></header><main class="content">${inner}<footer class="footer"><span>© 2026 <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.</span><span><a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a> &amp; <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">Terms of Service</a></span></footer></main></div>`; }
+function shell(inner) { app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand"><img class="brand-icon" src="assets/pipfolio-logo.png" alt="P"><span>ipfolio</span></div><div class="header-right"><nav class="nav" aria-label="Main navigation">${['dashboard', 'trades', 'calendar', 'settings'].map(v => `<button type="button" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</nav><div class="top-actions">${view !== 'settings' ? `<select id="account-filter" aria-label="Select trading account"><option value="all">All accounts</option>${accounts().map(a => `<option value="${esc(a.id)}" ${account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn primary" data-action="add">+ Add trade</button></div></div></header><main class="content">${inner}<footer class="footer"><span>© 2026 <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.</span><span><a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a> &amp; <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">Terms of Service</a></span></footer></main></div>`; }
 function render() {
     if (!user)
         return auth(); shell(view === 'dashboard' ? dashboard() : view === 'trades' ? tradesPage() : view === 'calendar' ? calendarPage() : settingsPage());
@@ -267,7 +284,7 @@ function comparisonBars(title, entries, subtitle) {
         return `<div class="comparison-row" title="${esc(detail)}">
             <span class="comparison-name" title="${esc(item.name)}">${esc(item.name)}</span>
             <div class="comparison-track"><span class="comparison-zero"></span><span class="comparison-bar" style="left:${left}%;width:${width}%;background:${colour}"></span></div>
-            <span class="comparison-value ${value < 0 ? 'negative' : value > 0 ? 'positive' : ''}">${item.count ? money(value) : ''}</span>
+            <span class="comparison-value ${value < 0 ? 'negative' : value > 0 ? 'positive' : ''}">${item.count ? money(value) : 'N/A'}</span>
         </div>`;
     }).join('');
     return `<section class="panel insight-panel"><div class="panel-head"><h3>${title}</h3></div><p class="muted small comparison-description">${subtitle}</p><div class="comparison-chart">${rows}</div></section>`;
@@ -416,7 +433,7 @@ function plannedRR(t) {
 function viewTrade(id) {
     const t = data.trades.find(item => item.id === id);
     if (!t) return;
-    const cell = (label, value) => `<div class="trade-detail-cell"><span class="muted small">${label}</span><strong>${esc(value === null || value === undefined ? '' : value)}</strong></div>`;
+    const cell = (label, value) => `<div class="trade-detail-cell"><span class="muted small">${label}</span><strong>${esc(value === null || value === undefined || String(value).trim() === '' || String(value).trim() === '—' ? 'N/A' : value)}</strong></div>`;
     const shots = (t.screenshots || []).map((item, i) => {
         const src = screenshotSrc(item);
         return src ? `<a href="${esc(src)}" target="_blank" rel="noopener"><img src="${esc(src)}" alt="Trade screenshot ${i + 1}" class="trade-detail-image"></a>` : '';
@@ -433,7 +450,7 @@ function viewTrade(id) {
         ${cell('Stop Loss', t.stopLoss ?? '')}${cell('Take Profit', t.takeProfit ?? '')}
         ${cell('Strategy', t.setup || '')}${cell('Reviewed', t.reviewed ? 'Yes' : 'No')}
         ${cell('Tags', t.tags || '')}${cell('Mistakes / Lessons', t.mistakes || '')}
-    </div>${t.notes ? `<div class="trade-detail-notes"><strong>Notes</strong><p>${esc(t.notes)}</p></div>` : ''}${shots ? `<div class="trade-detail-notes"><strong>Screenshots</strong><div class="trade-detail-shots">${shots}</div></div>` : ''}`;
+    </div><div class="trade-detail-notes"><strong>Notes</strong><p>${t.notes ? esc(t.notes) : 'None'}</p></div><div class="trade-detail-notes"><strong>Screenshots</strong>${shots ? `<div class="trade-detail-shots">${shots}</div>` : '<p>None</p>'}</div>`;
     openModal('Trade Details', body, `<button type="button" class="btn" data-action="close">Close</button><button type="button" class="btn primary" data-action="edit-viewed-trade">Edit Trade</button>`);
     modal.dataset.trade = id;
 }
@@ -442,9 +459,58 @@ function resultsChart(w, l, b) {
     const total = w + l + b; if (!total)
         return '<div class="empty">No closed trades yet</div>'; const parts = [['Wins', w, 'var(--green)'], ['Losses', l, 'var(--red)'], ['Breakeven', b, 'var(--muted)']]; return `<div class="results-chart" role="img" aria-label="Trade results: ${w} wins, ${l} losses, ${b} breakeven"><div class="results-bars">${parts.map(([name, n, color]) => `<div class="results-bar-col"><strong>${n}</strong><div class="results-bar-track"><div class="results-bar" style="height:${n ? Math.max(4, 100 * n / Math.max(w, l, b)) : 0}%;background:${color}"></div></div><span>${name}</span></div>`).join('')}</div></div>`;
 }
-// TradingView-hosted symbol logos: best-effort lookup, not a complete licensed catalogue.
-const CURRENCY = { USD: 'us', EUR: 'eu', GBP: 'gb', JPY: 'jp', AUD: 'au', NZD: 'nz', CAD: 'ca', CHF: 'ch', CNH: 'cn', CNY: 'cn', SGD: 'sg', HKD: 'hk', ZAR: 'za', MXN: 'mx', TRY: 'tr', SEK: 'se', NOK: 'no', DKK: 'dk', PLN: 'pl' };
-const SYMBOL_LOGOS = { XAUUSD: 'metal/gold', XAGUSD: 'metal/silver', XPTUSD: 'metal/platinum', XPDUSD: 'metal/palladium', BTCUSD: 'crypto/XTVCBTC', ETHUSD: 'crypto/XTVCETH', SOLUSD: 'crypto/XTVCSOL', SPX: 'indices/s-and-p-500', SPX500: 'indices/s-and-p-500', US500: 'indices/s-and-p-500', NAS100: 'indices/nasdaq-100', US100: 'indices/nasdaq-100', NDX: 'indices/nasdaq-100', DJI: 'indices/dow-jones-industrial-average', US30: 'indices/dow-jones-industrial-average', DAX: 'indices/dax', DE40: 'indices/dax', UK100: 'indices/ftse-100', VIX: 'indices/volatility-s-and-p-500', GC1: 'metal/gold', SI1: 'metal/silver', CL1: 'crude-oil', NG1: 'natural-gas' };
+// TradingView-style symbol icons. Explicit matches are preferred to guesses.
+const CURRENCY = {
+    USD:'us', EUR:'eu', GBP:'gb', JPY:'jp', AUD:'au', NZD:'nz',
+    CAD:'ca', CHF:'ch', CNH:'cn', CNY:'cn', SGD:'sg', HKD:'hk',
+    ZAR:'za', MXN:'mx', TRY:'tr', SEK:'se', NOK:'no', DKK:'dk',
+    PLN:'pl', INR:'in', BRL:'br'
+};
+// Verified-style mappings by market. Do not guess logos for unknown tickers.
+// The actual TradingView-hosted SVG is displayed when the path exists.
+const SYMBOL_LOGOS = {
+    XAUUSD:'metal/gold', XAGUSD:'metal/silver', XPTUSD:'metal/platinum',
+    XPDUSD:'metal/palladium', GOLD:'metal/gold', SILVER:'metal/silver',
+    BTC:'crypto/XTVCBTC', ETH:'crypto/XTVCETH', SOL:'crypto/XTVCSOL',
+    ADA:'crypto/XTVCADA', DOGE:'crypto/XTVCDOGE', XRP:'crypto/XTVCXRP',
+    LTC:'crypto/XTVCLTC', DOT:'crypto/XTVCDOT', LINK:'crypto/XTVCLINK',
+    AVAX:'crypto/XTVCAVAX', BNB:'crypto/XTVCBNB', TRX:'crypto/XTVCTRX',
+    BCH:'crypto/XTVCBCH', UNI:'crypto/XTVCUNI', ATOM:'crypto/XTVCATOM',
+    SPX:'indices/s-and-p-500', SPX500:'indices/s-and-p-500',
+    US500:'indices/s-and-p-500', NDX:'indices/nasdaq-100',
+    NAS100:'indices/nasdaq-100', US100:'indices/nasdaq-100',
+    DJI:'indices/dow-jones-industrial-average',
+    US30:'indices/dow-jones-industrial-average',
+    DAX:'indices/dax', DE40:'indices/dax', GER40:'indices/dax',
+    UK100:'indices/ftse-100', FTSE:'indices/ftse-100',
+    VIX:'indices/volatility-s-and-p-500',
+    AAPL:'apple', MSFT:'microsoft', NVDA:'nvidia', TSLA:'tesla',
+    AMZN:'amazon', META:'meta-platforms', GOOGL:'alphabet', GOOG:'alphabet',
+    JPM:'jpmorgan-chase', V:'visa', MA:'mastercard',
+    JNJ:'johnson-and-johnson', BAC:'bank-of-america',
+    HD:'home-depot', BRKB:'berkshire-hathaway',
+    UNH:'unitedhealth-group'
+};
+const CRYPTO_BASES = new Set([
+    'BTC','ETH','SOL','ADA','DOGE','XRP','LTC','DOT','LINK','AVAX',
+    'BNB','TRX','BCH','UNI','ATOM'
+]);
+const CRYPTO_QUOTES = ['USDT','USDC','BUSD','USD','BTC','ETH','EUR','GBP'];
+// A future is identified by its contract root, not by a guessed ticker logo.
+const FUTURE_UNDERLYING = {
+    GC:'XAUUSD', MGC:'XAUUSD', SI:'XAGUSD', SIL:'XAGUSD',
+    ES:'SPX', MES:'SPX', NQ:'NDX', MNQ:'NDX',
+    YM:'DJI', MYM:'DJI', RTY:'RUT', M2K:'RUT',
+    VX:'VIX'
+};
+const ETF_LOGOS = {
+    SPY:'spdr-s-and-p-500-etf-trust',
+    QQQ:'invesco-qqq-trust',
+    IWM:'ishares-russell-2000-etf',
+    GLD:'spdr-gold-shares',
+    SLV:'ishares-silver-trust',
+    TLT:'ishares-20-plus-year-treasury-bond-etf'
+};
 function instrumentChart(ts) {
     const totals = new Map(); for (const t of ts) {
         const k = String(t.pair || 'Unknown').toUpperCase();
@@ -452,52 +518,66 @@ function instrumentChart(ts) {
     } const rows = [...totals].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 6); if (!rows.length)
         return '<div class="empty">No closed trades yet</div>'; const max = Math.max(...rows.map(x => Math.abs(x[1])), 1); return `<div class="instrument-chart">${rows.map(([name, value]) => `<div class="instrument-chart-row"><span title="${esc(name)}">${esc(name)}</span><div class="instrument-chart-track"><div class="instrument-chart-fill ${value < 0 ? 'is-loss' : ''}" style="width:${Math.max(1, Math.abs(value) / max * 100)}%"></div></div><strong class="${value >= 0 ? 'positive' : 'negative'}">${value > 0 ? '+' : ''}${money(value)}</strong></div>`).join('')}</div>`;
 }
-// Logos use TradingView's publicly served symbol assets when a matching path is known.
-// TradingView does not publish a guaranteed complete symbol-logo mapping API.
+// TradingView's image host is a best-effort source, not a public logo lookup API.
+// Never attach an unrelated logo to a ticker with ambiguous meaning.
 function assetIcon(symbol) {
     const raw = String(symbol || '').trim().toUpperCase();
-    if (!raw) return '<span class="asset-icon asset-icon-empty" aria-hidden="true"></span>';
-    const ticker = raw.split(':').pop().replace(/\.[A-Z0-9]+$/, '').replace(/[^A-Z0-9!]/g, '');
-    const base = ticker.replace(/1!$/, '1');
-    const logoRoot = 'https://s3-symbol-logo.tradingview.com/';
-    const paths = [];
-    if (SYMBOL_LOGOS[ticker] || SYMBOL_LOGOS[base]) paths.push(SYMBOL_LOGOS[ticker] || SYMBOL_LOGOS[base]);
-    const isForex = /^[A-Z]{6}$/.test(ticker) && CURRENCY[ticker.slice(0, 3)] && CURRENCY[ticker.slice(3)];
-    if (isForex && !SYMBOL_LOGOS[ticker]) {
-        const currencyIcon = code => {
+    if (!raw) return '<span class="asset-icon" aria-hidden="true"></span>';
+    const fullTicker = raw.split(':').pop().replace(/\\.[A-Z0-9]+$/, '');
+    const ticker = fullTicker.replace(/[^A-Z0-9!]/g, '');
+    const root = 'https://s3-symbol-logo.tradingview.com/';
+    const forex = /^[A-Z]{6}$/.test(ticker) &&
+        CURRENCY[ticker.slice(0, 3)] && CURRENCY[ticker.slice(3, 6)];
+    if (forex) {
+        const flag = code => {
             const country = CURRENCY[code];
-            const sources = [logoRoot + 'country/' + country + '.svg', 'https://flagcdn.com/w40/' + country + '.png'];
-            return logoImage(sources, code);
+            const urls = [root + 'country/' + country.toUpperCase() + '.svg',
+                'https://flagcdn.com/w80/' + country + '.png'];
+            return `<span class="asset-flag"><span class="asset-flag-fallback">${esc(code)}</span>${logoImage(urls)}</span>`;
         };
-        return `<span class="asset-pair" aria-hidden="true">${currencyIcon(ticker.slice(0, 3))}${currencyIcon(ticker.slice(3))}</span>`;
+        return `<span class="asset-pair" aria-label="${esc(ticker)}">${flag(ticker.slice(0,3))}${flag(ticker.slice(3,6))}</span>`;
     }
-    if (/^[A-Z0-9]{1,15}$/.test(ticker)) {
-        paths.push(ticker.toLowerCase(), 'crypto/' + ticker.toLowerCase());
+    let match = SYMBOL_LOGOS[ticker] || ETF_LOGOS[ticker];
+    if (!match) {
+        for (const quote of CRYPTO_QUOTES) {
+            if (ticker.endsWith(quote)) {
+                const base = ticker.slice(0, -quote.length);
+                if (CRYPTO_BASES.has(base)) {
+                    match = SYMBOL_LOGOS[base];
+                    break;
+                }
+            }
+        }
     }
-    const urls = [...new Set(paths)].map(path => logoRoot + path + '.svg');
-    return `<span class="asset-icon" aria-hidden="true"><span class="asset-fallback">${esc(ticker.slice(0, 2) || '')}</span>${logoImage(urls, ticker)}</span>`;
+    if (!match) {
+        // Continuous futures (ES1!, MES1!) and dated futures (ESZ2026).
+        const m = ticker.match(/^([A-Z]{1,3})(?:[FGHJKMNQUVXZ]\\d{1,4}|\\d+!)$/);
+        if (m) match = SYMBOL_LOGOS[FUTURE_UNDERLYING[m[1]]];
+    }
+    const fallback = esc(ticker.replace(/!$/, '').slice(0, 4));
+    const urls = match ? [root + match + '.svg'] : [];
+    return `<span class="asset-icon asset-icon-native" title="${esc(raw)}"><span class="asset-fallback">${fallback}</span>${logoImage(urls)}</span>`;
 }
-function logoImage(urls, label) {
+function logoImage(urls) {
     if (!urls.length) return '';
-    // All URL candidates are built from fixed, trusted hosts and sanitised symbol paths.
     const options = esc(JSON.stringify(urls.slice(1)));
     return `<img loading="lazy" alt="" src="${esc(urls[0])}" data-logo-options="${options}" onerror="try{const q=JSON.parse(this.dataset.logoOptions||'[]');if(q.length){this.src=q.shift();this.dataset.logoOptions=JSON.stringify(q)}else this.remove()}catch(e){this.remove()}">`;
 }
 function table(ts) {
     if (!ts.length) return '<div class="empty">No trades to display. Add a trade to get started.</div>';
-    const show = value => value === null || value === undefined || String(value).trim() === '' || String(value).trim() === '—' ? '' : esc(String(value));
+    const show = value => value === null || value === undefined || String(value).trim() === '' || String(value).trim() === '—' ? 'N/A' : esc(String(value));
     const row = t => {
-        const direction = t.side === 'Sell' ? 'Short' : t.side === 'Buy' ? 'Long' : '';
+        const direction = t.side === 'Sell' ? 'Short' : t.side === 'Buy' ? 'Long' : 'N/A';
         const result = labelResult(t);
         const accountName = acctName(t.account);
         return `<tr class="clickable" data-edit="${esc(t.id)}">
             <td>${show((t.dt || '').slice(0, 10))}</td>
             <td><span class="instrument">${assetIcon(t.pair)}<strong>${show(t.pair)}</strong></span></td>
-            <td>${direction ? `<span class="result ${direction.toLowerCase()}">${direction}</span>` : ''}</td>
+            <td>${direction === 'N/A' ? '<span class="muted">N/A</span>' : `<span class="result ${direction.toLowerCase()}">${direction}</span>`}</td>
             <td>${show(accountName)}</td>
             <td>${show(t.lots)}</td>
             <td>${result && result !== '—' ? `<span class="result ${esc(result.toLowerCase())}">${esc(result)}</span>` : ''}</td>
-            <td class="right ${closed(t) ? pnl(t) > 0 ? 'positive' : pnl(t) < 0 ? 'negative' : '' : ''}">${closed(t) ? money(pnl(t)) : ''}</td>
+            <td class="right ${closed(t) ? pnl(t) > 0 ? 'positive' : pnl(t) < 0 ? 'negative' : '' : ''}">${closed(t) ? money(pnl(t)) : '<span class="muted">N/A</span>'}</td>
         </tr>`;
     };
     return `<div class="tablewrap"><table class="trades-table"><colgroup><col class="col-date"><col class="col-instrument"><col class="col-direction"><col class="col-account"><col class="col-size"><col class="col-result"><col class="col-pnl"></colgroup><thead><tr><th>Date</th><th>Instrument</th><th>Direction</th><th>Account</th><th>Size</th><th>Result</th><th class="right">Net P&L</th></tr></thead><tbody>${ts.map(row).join('')}</tbody></table></div>`;
@@ -510,17 +590,17 @@ function tradeHistorySummary(trades) {
     const selectedAccounts = accounts().filter(a => account === 'all' || a.id === account);
     const balance = selectedAccounts.reduce((total, a) => {
         const flows = Array.isArray(a.flows) ? a.flows : [];
-        return total + num(a.startingBalance) + flows.reduce((sum, f) => sum + (f.type === 'deposit' ? num(f.amount) : f.type === 'withdrawal' ? -num(f.amount) : 0), 0);
+        return total + flows.reduce((sum, f) => sum + (f.type === 'deposit' ? num(f.amount) : f.type === 'withdrawal' ? -num(f.amount) : 0), 0);
     }, 0) + data.trades.filter(t => closed(t) && (account === 'all' || t.account === account)).reduce((sum, t) => sum + pnl(t), 0);
     const balanceText = selectedAccounts.length ? money(balance) : '';
     return `<div class="trade-summary-grid">
-        <div class="trade-summary-item"><span>Net P&L</span><strong class="${net >= 0 ? 'positive' : 'negative'}">${finished.length ? money(net) : ''}</strong></div>
-        <div class="trade-summary-item"><span>Best Trade</span><strong class="positive">${best === null ? '' : money(best)}</strong></div>
-        <div class="trade-summary-item"><span>Worst Trade</span><strong class="negative">${worst === null ? '' : money(worst)}</strong></div>
+        <div class="trade-summary-item"><span>Net P&L</span><strong class="${net >= 0 ? 'positive' : 'negative'}">${finished.length ? money(net) : 'N/A'}</strong></div>
+        <div class="trade-summary-item"><span>Best Trade</span><strong class="positive">${best === null ? 'N/A' : money(best)}</strong></div>
+        <div class="trade-summary-item"><span>Worst Trade</span><strong class="negative">${worst === null ? 'N/A' : money(worst)}</strong></div>
     </div>`;
 }
 
-function tradesPage() { const shown = filtered(); return `<div class="pagehead"><div><h2>Trade History</h2><div class="muted">Search, record and review your trades.</div></div><div><button type="button" class="btn" data-action="import">Import</button> <button type="button" class="btn" data-action="export">Export</button></div></div><div class="toolbar"><input id="search" placeholder="Search instruments, notes…" value="${esc(search)}"><select id="result-filter"><option value="all">All results</option>${['open', 'win', 'loss', 'breakeven'].map(v => `<option value="${v}" ${filter === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><span class="muted small">${shown.length} trades</span></div>${tradeHistorySummary(shown)}${table(filtered().sort((a, b) => b.dt.localeCompare(a.dt)))}`; }
+function tradesPage() { const shown = filtered(); return `<div class="pagehead"><div><h2>Trade History</h2><div class="muted">Search, record and review your trades.</div></div><div><button type="button" class="btn" data-action="import">Import</button> <button type="button" class="btn" data-action="export">Export</button></div></div><div class="toolbar"><input id="search" placeholder="Search instruments, notes…" value="${esc(search)}"><select id="result-filter"><option value="all">All results</option>${['open', 'win', 'loss', 'breakeven'].map(v => `<option value="${v}" ${filter === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><span class="muted small">${shown.length} trades</span>${tradesBalance()}</div>${tradeHistorySummary(shown)}${table(filtered().sort((a, b) => b.dt.localeCompare(a.dt)))}`; }
 function calendarPage(embedded = false) {
     const first = new Date(year, month, 1).getDay(), days = new Date(year, month + 1, 0).getDate(), byDay = {}; for (const t of allClosed()) {
         const day = (t.xdt || t.dt).slice(0, 10);
@@ -546,7 +626,7 @@ function calendarPage(embedded = false) {
             weekTrades += ts.length;
             cells.push(`<button type="button" class="day ${ts.length ? sum > 0 ? 'win' : sum < 0 ? 'loss' : 'even' : ''} ${selectedDay === date ? 'selected' : ''}" data-day="${date}"><span class="number">${d}</span>${ts.length ? `<strong class="amount">${sum > 0 ? '+' : ''}${money(sum)}</strong><span class="small">${ts.length} trade${ts.length === 1 ? '' : 's'}</span>` : ''}</button>`);
         }
-        cells.push(`<div class="week-total"><strong class="${weekTotal > 0 ? 'positive' : weekTotal < 0 ? 'negative' : ''}">${weekTrades ? `${weekTotal > 0 ? '+' : ''}${money(weekTotal)}` : ''}</strong><span>${weekTrades ? `${weekTrades} trade${weekTrades === 1 ? '' : 's'}` : ''}</span></div>`);
+        cells.push(`<div class="week-total"><strong class="${weekTotal > 0 ? 'positive' : weekTotal < 0 ? 'negative' : ''}">${weekTrades ? `${weekTotal > 0 ? '+' : ''}${money(weekTotal)}` : 'N/A'}</strong><span>${weekTrades ? `${weekTrades} trade${weekTrades === 1 ? '' : 's'}` : '0 trades'}</span></div>`);
     } const chosen = byDay[selectedDay] || []; return `${embedded ? '' : '<div class="pagehead"><div><h2>Trading Calendar</h2><div class="muted">Daily results at a glance.</div></div></div>'}<section class="panel calendar-panel"><div class="calendar-head calendar-picker" aria-label="Choose calendar month and year"><label class="calendar-picker-field"><select id="calendar-month" aria-label="Calendar month">${Array.from({ length: 12 }, (_, i) => `<option value="${i}" ${i === month ? 'selected' : ''}>${new Date(2024, i, 1).toLocaleString('en-GB', { month: 'long' })}</option>`).join('')}</select></label><label class="calendar-picker-field"><select id="calendar-year" aria-label="Calendar year">${Array.from({ length: 201 }, (_, i) => 1900 + i).map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></label></div><div class="calendar-scroll"><div class="calgrid">${cells.join('')}</div></div><div class="calendar-footer"><span>${tradeDays} trading days · ${greenDays} green</span><span>Month: <strong class="${monthly >= 0 ? 'positive' : 'negative'}">${monthly > 0 ? '+' : ''}${money(monthly)}</strong></span></div></section>${selectedDay ? `<section class="selected-day"><div class="panel-head"><h3>${esc(selectedDay)} · ${chosen.length} trades</h3><button type="button" class="btn" data-action="clear-day">Clear selection</button></div>${table(chosen)}</section>` : ''}`;
 }
 function accountFigures(a) {
@@ -555,10 +635,9 @@ function accountFigures(a) {
     const withdrawals = flows.filter(f => f.type === 'withdrawal').reduce((v, f) => v + num(f.amount), 0);
     const trades = data.trades.filter(t => t.account === a.id && closed(t));
     const net = trades.reduce((v, t) => v + pnl(t), 0);
-    const starting = num(a.startingBalance);
-    return { deposits, withdrawals, net, balance: starting + deposits - withdrawals + net, count: trades.length };
+    return { deposits, withdrawals, net, balance: deposits - withdrawals + net, count: trades.length };
 }
-function settingsPage() { const prefs = data.preferences || {}; return `<div class="pagehead"><div><h2>Settings</h2><div class="muted">Manage your trading accounts and journal.</div></div></div><div class="settings-stack"><section class="panel"><div class="panel-head"><h3>Trading Accounts</h3><button type="button" class="btn" data-action="add-account">+ Add account</button></div><div class="account-list">${accounts().map(a => { const f = accountFigures(a); return `<article class="account-card"><div class="account-card-head"><div><strong>${esc(a.name)}</strong><div class="small muted">${esc(a.broker || 'Broker not set')} · ${esc(a.type || 'Other')}${a.currency ? ' · ' + esc(a.currency) : ''}</div></div><button type="button" class="btn" data-account-edit="${esc(a.id)}">Edit</button></div><div class="account-figures"><div><span>Estimated balance</span><strong>${money(f.balance)}</strong></div><div><span>Starting balance</span><strong>${money(a.startingBalance)}</strong></div><div><span>Deposits</span><strong>${money(f.deposits)}</strong></div><div><span>Withdrawals</span><strong>${money(f.withdrawals)}</strong></div><div><span>Closed trade P&L</span><strong class="${f.net >= 0 ? 'positive' : 'negative'}">${money(f.net)}</strong></div><div><span>Closed trades</span><strong>${f.count}</strong></div></div><div class="account-foot"><span class="small muted">Calculated from recorded activity, not a live broker balance.</span><button type="button" class="btn" data-account-flow="${esc(a.id)}">Deposit / withdrawal</button></div></article>`; }).join('') || '<p class="muted">No accounts yet.</p>'}</div></section><div class="settings-lower"><section class="panel settings-appearance"><h3>Appearance</h3><div class="field"><label for="theme">Theme</label><select id="theme"><option value="light" ${prefs.theme !== 'dark' ? 'selected' : ''}>Light</option><option value="dark" ${prefs.theme === 'dark' ? 'selected' : ''}>Dark (black)</option></select></div><div class="field"><label for="accent">Custom accent colour</label><div class="accent-row"><input id="accent" type="color" value="${/^#[0-9a-fA-F]{6}$/.test(prefs.accent || '') ? prefs.accent : '#2563eb'}"><button type="button" class="btn" data-action="reset-accent">Reset colour</button></div></div><div class="field"><label for="quote">Dashboard quote</label><textarea id="quote" maxlength="180" placeholder="Your trading quote…">${esc(prefs.quote || '')}</textarea><button type="button" class="btn" data-action="save-quote">Save quote</button></div></section><section class="panel settings-data"><h3>Data & Account</h3><p class="muted">Back up your journal or import existing trades.</p><div class="toolbar"><button type="button" class="btn" data-action="export">Export backup</button><button type="button" class="btn" data-action="import">Import file</button></div><div class="account-danger-actions"><button type="button" class="btn" data-action="signout">Sign Out</button><button type="button" class="btn danger" data-action="erase-journal">Erase Journal</button><button type="button" class="btn danger" data-action="delete-profile">Delete Account</button></div><div class="risk-disclaimer"><strong>Risk Disclaimer:</strong> Trading in financial markets and leveraged instruments involves risk, including capital loss. Pipfolio is a trade journaling and analytics platform for informational purposes only, not financial advice, investment recommendations or trading signals. Trading decisions are at your own risk. Past performance does not guarantee future results. Assess circumstances and practise responsible risk management.</div></section></div></div>`; }
+function settingsPage() { const prefs = data.preferences || {}; return `<div class="pagehead"><div><h2>Settings</h2><div class="muted">Manage your trading accounts and journal.</div></div></div><div class="settings-stack"><section class="panel"><div class="panel-head"><h3>Trading Accounts</h3><button type="button" class="btn" data-action="add-account">+ Add account</button></div><div class="account-list">${accounts().map(a => { const f = accountFigures(a); return `<article class="account-card"><div class="account-card-head"><div><strong>${esc(a.name)}</strong><div class="small muted">${esc(a.broker || 'Broker not set')} · ${esc(a.type || 'Other')}${a.currency ? ' · ' + esc(a.currency) : ''}</div></div><button type="button" class="btn" data-account-edit="${esc(a.id)}">Edit</button></div><div class="account-figures"><div><span>Estimated balance</span><strong>${money(f.balance)}</strong></div><div><span>Deposits</span><strong>${money(f.deposits)}</strong></div><div><span>Withdrawals</span><strong>${money(f.withdrawals)}</strong></div><div><span>Closed trade P&L</span><strong class="${f.net >= 0 ? 'positive' : 'negative'}">${money(f.net)}</strong></div><div><span>Closed trades</span><strong>${f.count}</strong></div></div><div class="account-foot"><span class="small muted">Calculated from recorded activity, not a live broker balance.</span><button type="button" class="btn" data-account-flow="${esc(a.id)}">Deposit / withdrawal</button></div></article>`; }).join('') || '<p class="muted">No accounts yet.</p>'}</div></section><div class="settings-lower"><section class="panel settings-appearance"><h3>Appearance</h3><div class="field"><label for="theme">Theme</label><select id="theme"><option value="light" ${prefs.theme !== 'dark' ? 'selected' : ''}>Light</option><option value="dark" ${prefs.theme === 'dark' ? 'selected' : ''}>Dark (black)</option></select></div><div class="field"><label for="accent">Custom accent colour</label><div class="accent-row"><input id="accent" type="color" value="${/^#[0-9a-fA-F]{6}$/.test(prefs.accent || '') ? prefs.accent : '#2563eb'}"><button type="button" class="btn" data-action="reset-accent">Reset colour</button></div></div><div class="field"><label for="quote">Dashboard quote</label><textarea id="quote" maxlength="180" placeholder="Your trading quote…">${esc(prefs.quote || '')}</textarea><button type="button" class="btn" data-action="save-quote">Save quote</button></div></section><section class="panel settings-data"><h3>Data & Account</h3><p class="muted">Back up your journal or import existing trades.</p><div class="toolbar"><button type="button" class="btn" data-action="export">Export backup</button><button type="button" class="btn" data-action="import">Import file</button></div><div class="account-danger-actions"><button type="button" class="btn" data-action="signout">Sign Out</button><button type="button" class="btn danger" data-action="erase-journal">Erase Journal</button><button type="button" class="btn danger" data-action="delete-profile">Delete Account</button></div><div class="risk-disclaimer"><strong>Risk Disclaimer:</strong> Trading in financial markets and leveraged instruments involves risk, including capital loss. Pipfolio is a trade journaling and analytics platform for informational purposes only, not financial advice, investment recommendations or trading signals. Trading decisions are at your own risk. Past performance does not guarantee future results. Assess circumstances and practise responsible risk management.</div></section></div></div>`; }
 function openModal(title, body, footer = '') { if (modal.open) modal.close(); modal.className = 'dialog'; modal.innerHTML = `<div class="dialog-head"><h3>${esc(title)}</h3><button type="button" class="btn" data-action="close">✕</button></div><div class="dialog-body">${body}</div>${footer ? `<div class="dialog-foot">${footer}</div>` : ''}`; modal.showModal(); }
 function field(name, label, value = '', type = 'text', extra = '') { return `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}" ${extra}></div>`; }
 function tradeEditor(id) {
@@ -666,21 +745,31 @@ async function saveTrade() {
             toast('Trade saved');
         }
 }
-function accountEditor(id) { const a = accounts().find(x => x.id === id); openModal(a ? 'Edit account' : 'Add account', `<form id="account-form" class="form-grid">${field('name', 'Account name', a?.name || '', 'text', 'required maxlength="70"')}${field('broker', 'Broker / firm', a?.broker || '', 'text', 'maxlength="100"')}<div class="field"><label>Account type</label><select name="type">${['Personal', 'Funded', 'Demo', 'Other'].map(x => `<option ${a?.type === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div><div class="field"><label>Currency</label><select name="currency">${['USD', 'EUR', 'GBP', 'XCD', 'CAD', 'AUD', 'JPY', 'Other'].map(x => `<option ${((a?.currency || 'USD') === x) ? 'selected' : ''}>${x}</option>`).join('')}</select></div>${field('startingBalance', 'Starting balance', a?.startingBalance ?? 0, 'number', 'required min="0" step="0.01"')}${field('accountNumber', 'Account reference (optional)', a?.accountNumber || '', 'text', 'maxlength="80"')}<div class="field full"><label>Notes (optional)</label><textarea name="notes" maxlength="500">${esc(a?.notes || '')}</textarea></div></form>`, `${a ? '<button type="button" class="btn danger" data-action="delete-account">Delete account</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-account">Save</button>`); modal.dataset.account = id || ''; }
+function accountEditor(id) { const a = accounts().find(x => x.id === id); openModal(a ? 'Edit account' : 'Add account', `<form id="account-form" class="form-grid">${field('name', 'Account name', a?.name || '', 'text', 'required maxlength="70"')}${field('broker', 'Broker / firm', a?.broker || '', 'text', 'maxlength="100"')}<div class="field"><label>Account type</label><select name="type">${['Personal', 'Funded', 'Demo', 'Other'].map(x => `<option ${a?.type === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div><div class="field"><label>Currency</label><select name="currency">${['USD', 'EUR', 'GBP', 'XCD', 'CAD', 'AUD', 'JPY', 'Other'].map(x => `<option ${((a?.currency || 'USD') === x) ? 'selected' : ''}>${x}</option>`).join('')}</select></div>${field('accountNumber', 'Account reference (optional)', a?.accountNumber || '', 'text', 'maxlength="80"')}<div class="field full"><label>Notes (optional)</label><textarea name="notes" maxlength="500">${esc(a?.notes || '')}</textarea></div></form>`, `${a ? '<button type="button" class="btn danger" data-action="delete-account">Delete account</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-account">Save</button>`); modal.dataset.account = id || ''; }
 async function saveAccount() {
-    const f = document.getElementById('account-form'); if (!f.reportValidity())
-        return; const vals = new FormData(f), n = clone(), id = modal.dataset.account, a = accounts().find(x => x.id === id); const get = k => String(vals.get(k) || '').trim(), startingBalance = Number(get('startingBalance')); if (!Number.isFinite(startingBalance) || startingBalance < 0)
-        return toast('Enter a valid starting balance.'); const next = { ...(a || { id: uid(), flows: [] }), name: get('name'), type: get('type'), broker: get('broker'), currency: get('currency'), startingBalance, accountNumber: get('accountNumber'), notes: get('notes') }; if (a)
-        n.settings.accounts = n.settings.accounts.map(x => x.id === id ? next : x);
-    else
-        n.settings.accounts.push(next); if (await save(n)) {
-            modal.close();
-            toast('Account saved');
-        }
+    const f = document.getElementById('account-form');
+    if (!f?.reportValidity()) return;
+    const vals = new FormData(f);
+    const n = clone();
+    const id = modal.dataset.account;
+    const a = accounts().find(x => x.id === id);
+    const get = k => String(vals.get(k) || '').trim();
+    const next = {
+        ...(a || { id: uid(), flows: [] }),
+        name: get('name'), type: get('type'), broker: get('broker'),
+        currency: get('currency'), startingBalance: 0,
+        accountNumber: get('accountNumber'), notes: get('notes')
+    };
+    if (a) n.settings.accounts = n.settings.accounts.map(x => x.id === id ? next : x);
+    else n.settings.accounts.push(next);
+    if (await save(n)) {
+        modal.close();
+        toast('Account saved');
+    }
 }
 function accountFlowEditor(id) {
     const a = accounts().find(x => x.id === id); if (!a)
-        return; const flows = Array.isArray(a.flows) ? a.flows : []; openModal('Deposits and withdrawals — ' + a.name, `<form id="flow-form" class="form-grid"><div class="field"><label>Transaction</label><select name="type"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option></select></div>${field('amount', 'Amount', '', 'number', 'required min="0.01" step="0.01"')}${field('date', 'Date', new Date().toISOString().slice(0, 10), 'date', 'required')}<div class="field full"><label>Note (optional)</label><input name="note" maxlength="140"></div></form><div class="flow-history"><h4>Transaction History</h4>${flows.length ? flows.map(f => `<div class="flow-row"><div><strong>${f.type === 'withdrawal' ? 'Withdrawal' : 'Deposit'} · ${money(f.amount)}</strong><div class="small muted">${esc(f.date || '')}${f.note ? ' · ' + esc(f.note) : ''}</div></div><button class="btn" type="button" data-remove-flow="${esc(f.id)}" aria-label="Delete transaction">Remove</button></div>`).join('') : '<p class="small muted">No deposits or withdrawals recorded.</p>'}</div>`, `<button type="button" class="btn" data-action="close">Close</button><button type="button" class="btn primary" data-action="save-flow">Add transaction</button>`); modal.dataset.account = id;
+        return; const flows = Array.isArray(a.flows) ? [...a.flows].sort((x, y) => String(y.date || '').localeCompare(String(x.date || ''))) : []; openModal('Deposits and withdrawals — ' + a.name, `<form id="flow-form" class="form-grid"><div class="field"><label>Transaction</label><select name="type"><option value="deposit">Deposit</option><option value="withdrawal">Withdrawal</option></select></div>${field('amount', 'Amount', '', 'number', 'required min="0.01" step="0.01"')}${field('date', 'Date', new Date().toISOString().slice(0, 10), 'date', 'required')}<div class="field full"><label>Note (optional)</label><input name="note" maxlength="140"></div></form><div class="flow-history"><h4>Transaction History</h4>${flows.length ? flows.map(f => `<div class="flow-row"><div><strong>${f.type === 'withdrawal' ? 'Withdrawal' : 'Deposit'} · ${money(f.amount)}</strong><div class="small muted">${esc(f.date || '')}${f.note ? ' · ' + esc(f.note) : ''}</div></div><button class="btn" type="button" data-remove-flow="${esc(f.id)}" aria-label="Delete transaction">Remove</button></div>`).join('') : '<p class="small muted">No deposits or withdrawals recorded.</p>'}</div>`, `<button type="button" class="btn" data-action="close">Close</button><button type="button" class="btn primary" data-action="save-flow">Add transaction</button>`); modal.dataset.account = id;
 }
 async function saveFlow() {
     const f = document.getElementById('flow-form'); if (!f?.reportValidity())
@@ -1113,3 +1202,4 @@ document.addEventListener('pointerout', event => {
 });
 document.getElementById('upload').addEventListener('change', e => { importFile(e.target.files[0]); e.target.value = ''; });
 init();
+

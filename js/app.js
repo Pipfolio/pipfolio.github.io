@@ -11,6 +11,27 @@ let data = { version: 3, trades: [], settings: { accounts: [] }, preferences: { 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = v => (v < 0 ? '−' : '') + '$' + Math.abs(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = v => Number(v) || 0;
+// Preserve the user's local date and time when editing stored ISO timestamps.
+function dateInputValue(value) {
+    if (!value) return '';
+    const raw = String(value);
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(raw)) return raw;
+    const date = new Date(raw);
+    if (!Number.isFinite(date.getTime())) return raw.slice(0, 16);
+    const pad = value => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+function headerBalance() {
+    const selected = accounts().filter(a => account === 'all' || a.id === account);
+    if (!selected.length) return '';
+    const currencies = [...new Set(selected.map(a => a.currency || 'USD'))];
+    if (currencies.length !== 1) return '';
+    const figures = selected.map(a => accountFigures(a));
+    const total = figures.reduce((sum, f) => sum + f.balance, 0);
+    const baseline = figures.reduce((sum, f, i) => sum + num(selected[i].startingBalance) + f.deposits - f.withdrawals, 0);
+    const tone = total > baseline ? 'positive' : total < baseline ? 'negative' : '';
+    return `<span class="header-balance ${tone}" title="Estimated balance in ${esc(currencies[0])}; calculated from starting balance, deposits, withdrawals and closed trade P&L. Not a live broker balance.">${esc(money(total))}</span>`;
+}
 const uid = () => crypto.randomUUID?.() || 'trade-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 const local = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 const closed = t => !!t.xdt || (t.exit !== null && t.exit !== undefined && t.exit !== '' && t.pl !== null && t.pl !== undefined && t.pl !== '');
@@ -59,7 +80,7 @@ async function save(next) {
 }
 const clone = () => structuredClone(data);
 function icons(name) { const paths = { dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>', trades: '<path d="M4 6h16M4 12h16M4 18h16"/>', calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>' }; return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`; }
-function shell(inner) { app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand"><img class="brand-icon" src="assets/pipfolio-logo.png" alt="P"><span>ipfolio</span></div><div class="header-right"><nav class="nav" aria-label="Main navigation">${['dashboard', 'trades', 'calendar', 'settings'].map(v => `<button type="button" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</nav><div class="top-actions">${view !== 'settings' ? `<select id="account-filter" aria-label="Select trading account"><option value="all">All accounts</option>${accounts().map(a => `<option value="${esc(a.id)}" ${account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn primary" data-action="add">+ Add trade</button></div></div></header><main class="content">${inner}<footer class="footer"><span>© 2026 <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.</span><span><a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a> &amp; <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">Terms of Service</a></span></footer></main></div>`; }
+function shell(inner) { app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand"><img class="brand-icon" src="assets/pipfolio-logo.png" alt="P"><span>ipfolio</span></div><div class="header-right">${headerBalance()}<nav class="nav" aria-label="Main navigation">${['dashboard', 'trades', 'calendar', 'settings'].map(v => `<button type="button" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</nav><div class="top-actions">${view !== 'settings' ? `<select id="account-filter" aria-label="Select trading account"><option value="all">All accounts</option>${accounts().map(a => `<option value="${esc(a.id)}" ${account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn primary" data-action="add">+ Add trade</button></div></div></header><main class="content">${inner}<footer class="footer"><span>© 2026 <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.</span><span><a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a> &amp; <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">Terms of Service</a></span></footer></main></div>`; }
 function render() {
     if (!user)
         return auth(); shell(view === 'dashboard' ? dashboard() : view === 'trades' ? tradesPage() : view === 'calendar' ? calendarPage() : settingsPage());
@@ -541,13 +562,47 @@ function settingsPage() { const prefs = data.preferences || {}; return `<div cla
 function openModal(title, body, footer = '') { if (modal.open) modal.close(); modal.className = 'dialog'; modal.innerHTML = `<div class="dialog-head"><h3>${esc(title)}</h3><button type="button" class="btn" data-action="close">✕</button></div><div class="dialog-body">${body}</div>${footer ? `<div class="dialog-foot">${footer}</div>` : ''}`; modal.showModal(); }
 function field(name, label, value = '', type = 'text', extra = '') { return `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}" ${extra}></div>`; }
 function tradeEditor(id) {
-    const t = data.trades.find(x => x.id === id), now = local(); if (!accounts().length) {
+    const t = data.trades.find(x => x.id === id);
+    const now = local();
+    if (!accounts().length) {
         toast('Add a trading account in Settings first.');
         view = 'settings';
         render();
         return;
-    } const v = t || { account: account !== 'all' ? account : accounts()[0].id, dt: now, side: 'Buy', lots: 0.01, comm: 0, charges: 0 }; const body = `<form id="trade-form" class="form-grid"><div class="field"><label>Account</label><select name="account">${accounts().map(a => `<option value="${esc(a.id)}" ${v.account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>${field('pair', 'Instrument', v.pair || '', 'text', 'required maxlength="20" placeholder="XAUUSD"')}<div class="field"><label>Direction</label><select name="side"><option value="Buy" ${v.side === 'Buy' ? 'selected' : ''}>Buy / Long</option><option value="Sell" ${v.side === 'Sell' ? 'selected' : ''}>Sell / Short</option></select></div>${field('lots', 'Position size (lots)', v.lots, 'number', 'required min="0.000001" step="any"')}${field('dt', 'Entry date and time', v.dt?.slice(0, 16) || now, 'datetime-local', 'required')}${field('xdt', 'Exit date and time', v.xdt?.slice(0, 16) || '', 'datetime-local')}${field('entry', 'Entry price', v.entry ?? '', 'number', 'required min="0.00000001" step="any"')}${field('exit', 'Exit price (optional)', v.exit ?? '', 'number', 'min="0.00000001" step="any"')}${field('pl', 'Gross P&L (optional)', v.pl ?? '', 'number', 'step="any"')}${field('comm', 'Commission', v.comm ?? 0, 'number', 'min="0" step="any"')}${field('charges', 'Other fees', v.charges ?? 0, 'number', 'min="0" step="any"')}<div class="field"><label for="f-session">Trading Session</label><select id="f-session" name="session">${['Auto (UTC)', 'Sydney', 'Tokyo', 'London', 'New York', 'London / New York overlap', 'Sydney / Asia', 'Other'].map(x => `<option value="${x === 'Auto (UTC)' ? '' : x}" ${((v.session || '') === (x === 'Auto (UTC)' ? '' : x)) ? 'selected' : ''}>${x}</option>`).join('')}</select><span class="muted small">Auto uses the entry time as UTC. Choose manually if your timestamps use another timezone.</span></div><div class="field full"><div class="trade-auto-summary" id="trade-auto-summary" aria-live="polite"></div></div>${field('setup', 'Strategy / setup', v.setup || '')}${field('stopLoss', 'Planned stop loss (optional)', v.stopLoss ?? '', 'number', 'step="any"')}${field('takeProfit', 'Planned take profit (optional)', v.takeProfit ?? '', 'number', 'step="any"')}${field('tags', 'Tags (comma-separated)', v.tags || '', 'text', 'maxlength="250"')}${field('mistakes', 'Mistakes / lessons', v.mistakes || '', 'text', 'maxlength="500"')}<div class="field full"><label class="review-checkbox"><input type="checkbox" name="reviewed" value="yes" ${v.reviewed ? 'checked' : ''}> Mark this trade as reviewed</label></div><div class="field full"><label>Notes</label><textarea name="notes" maxlength="5000">${esc(v.notes || '')}</textarea></div><div class="field full"><label>Trade screenshots</label><input id="trade-screenshot-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><div class="small muted">Add screenshots or remove them individually. Images are saved with this trade.</div><div id="screenshot-list" class="screenshot-list"></div></div></form>`; openModal(t ? 'Edit trade' : 'Add trade', body, `${t ? '<button type="button" class="btn danger" data-action="delete-trade">Delete trade</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-trade">Save trade</button>`); modal.dataset.trade = id || ''; screenshotDraft = Array.isArray(v.screenshots) ? structuredClone(v.screenshots) : []; renderScreenshots(); updateTradePreview();
+    }
+    const v = t || {
+        account: account !== 'all' ? account : accounts()[0].id,
+        dt: now,
+        side: 'Buy',
+        lots: 0.01,
+        comm: 0
+    };
+    const sessionOptions = ['Auto (UTC)', 'Sydney', 'Tokyo', 'London', 'New York', 'London / New York overlap', 'Sydney / Asia', 'Other'];
+    const body = `<form id="trade-form" class="form-grid">
+        <div class="field"><label for="f-account">Trading Account</label><select id="f-account" name="account">${accounts().map(a => `<option value="${esc(a.id)}" ${v.account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>
+        ${field('pair', 'Instrument', v.pair || '', 'text', 'required maxlength="20" placeholder="XAUUSD"')}
+        <div class="field"><label for="f-side">Direction</label><select id="f-side" name="side"><option value="Buy" ${v.side === 'Buy' ? 'selected' : ''}>Buy / Long</option><option value="Sell" ${v.side === 'Sell' ? 'selected' : ''}>Sell / Short</option></select></div>
+        ${field('lots', 'Position Size (Lots)', v.lots, 'number', 'required min="0.000001" step="any"')}
+        ${field('dt', 'Entry Date & Time', dateInputValue(v.dt) || now, 'datetime-local', 'required')}
+        ${field('entry', 'Entry Price', v.entry ?? '', 'number', 'required min="0.00000001" step="any"')}
+        ${field('stopLoss', 'Stop Loss', v.stopLoss ?? '', 'number', 'min="0.00000001" step="any"')}
+        ${field('takeProfit', 'Take Profit', v.takeProfit ?? '', 'number', 'min="0.00000001" step="any"')}
+        <div class="field"><label for="f-session">Trading Session</label><select id="f-session" name="session">${sessionOptions.map(x => `<option value="${x === 'Auto (UTC)' ? '' : x}" ${(v.session || '') === (x === 'Auto (UTC)' ? '' : x) ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+        ${field('xdt', 'Exit Date & Time', dateInputValue(v.xdt) || '', 'datetime-local')}
+        ${field('exit', 'Exit Price', v.exit ?? '', 'number', 'min="0.00000001" step="any"')}
+        ${field('pl', 'Gross P&L', v.pl ?? '', 'number', 'step="any"')}
+        ${field('comm', 'Commission', v.comm ?? 0, 'number', 'min="0" step="any"')}
+        <div class="field full"><div class="trade-auto-summary" id="trade-auto-summary" aria-live="polite"></div></div>
+        <div class="field full"><label for="f-notes">Trade Notes (Optional)</label><textarea id="f-notes" name="notes" maxlength="5000" placeholder="Setup, execution or lessons learned">${esc(v.notes || '')}</textarea></div>
+        <div class="field full"><label for="trade-screenshot-upload">Screenshots (Optional)</label><input id="trade-screenshot-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><div id="screenshot-list" class="screenshot-list"></div></div>
+    </form>`;
+    openModal(t ? 'Edit Trade' : 'Add Trade', body, `${t ? '<button type="button" class="btn danger" data-action="delete-trade">Delete Trade</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-trade">Save Trade</button>`);
+    modal.dataset.trade = id || '';
+    screenshotDraft = Array.isArray(v.screenshots) ? structuredClone(v.screenshots) : [];
+    renderScreenshots();
+    updateTradePreview();
 }
+
 function updateTradePreview() {
     const form = modal.querySelector('#trade-form'), output = modal.querySelector('#trade-auto-summary');
     if (!form || !output) return;
@@ -591,10 +646,16 @@ modal.addEventListener('click', e => {
 });
 async function saveTrade() {
     const form = document.getElementById('trade-form'); if (!form.reportValidity())
-        return; const f = new FormData(form), get = k => String(f.get(k) || '').trim(), id = modal.dataset.trade, old = data.trades.find(t => t.id === id), dt = get('dt'), xdt = get('xdt'); if (xdt && xdt < dt)
-        return toast('Exit cannot be before entry.'); if (get('pl') && !xdt && !get('exit'))
-        return toast('Enter an exit date or exit price for a closed trade.'); const n = clone(), t = { ...(old || {}), id: id || uid(), account: get('account'), pair: get('pair').toUpperCase(), side: get('side'), lots: Number(get('lots')), dt, xdt, entry: Number(get('entry')), exit: get('exit') ? Number(get('exit')) : null, pl: get('pl') ? Number(get('pl')) : null, comm: Number(get('comm') || 0), charges: Number(get('charges') || 0), session: get('session') || tradeSession(dt), setup: get('setup'), stopLoss: get('stopLoss') ? Number(get('stopLoss')) : null, takeProfit: get('takeProfit') ? Number(get('takeProfit')) : null, tags: get('tags'), mistakes: get('mistakes'), reviewed: f.get('reviewed') === 'yes', notes: get('notes'), updated: Date.now(), created: old?.created || Date.now(), sample: old?.sample || false, screenshots: structuredClone(screenshotDraft) }; if (!(t.entry > 0 && t.lots > 0))
-        return toast('Entry price and position size must be greater than zero.'); if (t.exit !== null && t.exit <= 0)
+        return; const f = new FormData(form), get = k => String(f.get(k) || '').trim(), id = modal.dataset.trade, old = data.trades.find(t => t.id === id), dt = get('dt'), xdt = get('xdt'); if (xdt && Date.parse(xdt) < Date.parse(dt)) {
+        // Imported trades may contain legacy inconsistent timestamps. Do not prevent
+        // editing unrelated details unless either date was actually changed.
+        const originalEntry = old ? dateInputValue(old.dt) : '';
+        const originalExit = old ? dateInputValue(old.xdt) : '';
+        if (!old || dt !== originalEntry || xdt !== originalExit)
+            return toast('Exit cannot be before entry. Check the dates and timezone.');
+    } if (get('pl') && !xdt && !get('exit'))
+        return toast('Enter an exit date or exit price for a closed trade.'); const n = clone(), t = { ...(old || {}), id: id || uid(), account: get('account'), pair: get('pair').toUpperCase(), side: get('side'), lots: Number(get('lots')), dt, xdt, entry: Number(get('entry')), exit: get('exit') ? Number(get('exit')) : null, pl: get('pl') ? Number(get('pl')) : null, comm: Number(get('comm') || 0), charges: old?.charges ?? 0, session: get('session') || tradeSession(dt), setup: old?.setup || '', stopLoss: get('stopLoss') ? Number(get('stopLoss')) : null, takeProfit: get('takeProfit') ? Number(get('takeProfit')) : null, tags: old?.tags || '', mistakes: old?.mistakes || '', reviewed: old?.reviewed || false, notes: get('notes'), updated: Date.now(), created: old?.created || Date.now(), sample: old?.sample || false, screenshots: structuredClone(screenshotDraft) }; if (!(t.entry > 0 && t.lots > 0))
+        return toast('Entry price and position size must be greater than zero.'); if (t.stopLoss !== null && t.stopLoss <= 0 || t.takeProfit !== null && t.takeProfit <= 0) return toast('Stop Loss and Take Profit must be positive prices.'); if (t.stopLoss !== null && (t.side === 'Buy' ? t.stopLoss >= t.entry : t.stopLoss <= t.entry)) return toast('Stop Loss must be below entry for buys and above entry for sells.'); if (t.takeProfit !== null && (t.side === 'Buy' ? t.takeProfit <= t.entry : t.takeProfit >= t.entry)) return toast('Take Profit must be above entry for buys and below entry for sells.'); if (t.exit !== null && t.exit <= 0)
         return toast('Exit price must be greater than zero.'); if (!t.xdt && t.exit !== null)
         t.xdt = t.dt; if (t.xdt && t.pl === null)
         return toast('Enter the gross P&L for closed trades.'); if (old)

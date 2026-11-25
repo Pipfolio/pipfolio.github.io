@@ -2295,3 +2295,10 @@ html[data-theme=dark] .day.win .amount,html[data-theme=dark] .day.loss .amount,h
 .trade-auto-summary span { font-size:12px; color:var(--muted); }
 .trade-auto-summary strong { font-size:13px; overflow-wrap:anywhere; }
 @media (max-width:600px) { .trade-auto-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+/* Compact estimated balance, positioned immediately before dashboard navigation. */
+.header-balance { display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.header-balance.positive { color: #16a34a; }
+.header-balance.negative { color: #ef4444; }
+.header-right { gap: 14px; }
+@media (max-width: 680px) { .header-balance { font-size: 13px; } .header-right { gap: 8px; } }

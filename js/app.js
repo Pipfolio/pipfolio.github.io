@@ -316,38 +316,107 @@ function curve(ts) {
 }
 
 function performanceRadar(ts) {
-    if (!ts.length)
-        return '<div class="empty">Record closed trades to see your performance score</div>';
-    const vals = ts.map(pnl), wins = vals.filter(v => v > 0), losses = vals.filter(v => v < 0), n = vals.length;
-    const grossWin = wins.reduce((a, b) => a + b, 0), grossLoss = -losses.reduce((a, b) => a + b, 0);
-    const rate = wins.length / n, pf = grossLoss ? grossWin / grossLoss : (grossWin ? 4 : 0);
-    const avgWin = wins.length ? grossWin / wins.length : 0, avgLoss = losses.length ? grossLoss / losses.length : 0;
-    const ratio = avgLoss ? avgWin / avgLoss : (avgWin ? 4 : 0);
+    if (!ts.length) return '<div class="empty">Record closed trades to see your performance score</div>';
+    // Descriptive, bounded indicators. Scores are not forecasts or a measure of trading skill.
+    const ordered = [...ts].sort((a, b) => (a.xdt || a.dt).localeCompare(b.xdt || b.dt));
+    const values = ordered.map(pnl);
+    const winners = values.filter(v => v > 0), losers = values.filter(v => v < 0);
+    const grossWin = winners.reduce((a, b) => a + b, 0);
+    const grossLoss = -losers.reduce((a, b) => a + b, 0);
+    const clamp = v => Math.max(0, Math.min(1, v));
+    const rate = winners.length / values.length;
+    const profitFactor = grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0;
+    const avgWin = winners.length ? grossWin / winners.length : 0;
+    const avgLoss = losers.length ? grossLoss / losers.length : 0;
+    const payoff = avgLoss ? avgWin / avgLoss : avgWin ? Infinity : 0;
     const daily = new Map();
-    for (const t of ts) {
-        const d = (t.xdt || t.dt).slice(0, 10);
-        daily.set(d, (daily.get(d) || 0) + pnl(t));
+    for (const t of ordered) {
+        const date = (t.xdt || t.dt || '').slice(0, 10);
+        if (date) daily.set(date, (daily.get(date) || 0) + pnl(t));
     }
-    const days = [...daily.values()], consistency = days.length ? days.filter(v => v > 0).length / days.length : 0;
-    let peak = 0, equity = 0, maxDD = 0;
-    for (const v of vals) {
+    const days = [...daily.values()];
+    const consistency = days.length ? days.filter(v => v > 0).length / days.length : 0;
+    let equity = 0, peak = 0, maxDD = 0;
+    for (const v of values) {
         equity += v;
         peak = Math.max(peak, equity);
         maxDD = Math.max(maxDD, peak - equity);
     }
-    const drawdown = grossWin + grossLoss ? 1 - Math.min(1, maxDD / (grossWin + grossLoss)) : 0;
-    const recovery = maxDD ? Math.max(0, Math.min(1, (grossWin - grossLoss) / maxDD / 3)) : grossWin ? 1 : 0;
-    const metrics = [['Win %', rate], ['Profit factor', Math.min(1, pf / 3)], ['Avg win/loss', Math.min(1, ratio / 3)], ['Drawdown', drawdown], ['Recovery', recovery], ['Consistency', consistency]];
-    const score = Math.round(metrics.reduce((a, m) => a + m[1], 0) / metrics.length * 100);
+    const net = values.reduce((a, b) => a + b, 0);
+    const drawdownControl = grossWin + grossLoss ? clamp(1 - maxDD / (grossWin + grossLoss)) : 0;
+    const recovery = maxDD ? clamp((net / maxDD) / 3) : net > 0 ? 1 : 0;
+    const metrics = [
+        ['Win %', rate],
+        ['Profit factor', clamp(profitFactor / 3)],
+        ['Avg win/loss', clamp(payoff / 3)],
+        ['Drawdown', drawdownControl],
+        ['Recovery', recovery],
+        ['Consistency', consistency]
+    ];
+    // Shrink small samples towards a neutral score, rather than implying false precision.
+    const reliability = values.length / (values.length + 30);
+    const raw = metrics.reduce((sum, item) => sum + item[1], 0) / metrics.length;
+    const score = Math.round(100 * (0.5 + reliability * (raw - 0.5)));
     const cx = 180, cy = 154, R = 105;
     const xy = (i, r) => { const a = -Math.PI / 2 + i * Math.PI / 3; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; };
     const polygon = r => metrics.map((_, i) => xy(i, r).map(v => v.toFixed(1)).join(',')).join(' ');
-    const shape = metrics.map((m, i) => xy(i, Math.max(0, m[1]) * R).map(v => v.toFixed(1)).join(',')).join(' ');
-    const grid = [.25, .5, .75, 1].map(t => `<polygon points="${polygon(R * t)}" fill="none" stroke="var(--border)" stroke-width="1"/>`).join('');
-    const axes = metrics.map((_, i) => { const [x, y] = xy(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`; }).join('');
+    const shape = metrics.map((m, i) => xy(i, m[1] * R).map(v => v.toFixed(1)).join(',')).join(' ');
+    const grid = [.25, .5, .75, 1].map(v => `<polygon points="${polygon(R * v)}" fill="none" stroke="var(--border)" stroke-width="1"/>`).join('');
+    const axes = metrics.map((_, i) => { const [x, y] = xy(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--border)"/>`; }).join('');
     const labels = metrics.map(([label, v], i) => { const [x, y] = xy(i, R + 24); return `<text x="${x}" y="${y + 4}" text-anchor="middle" fill="var(--muted)" font-size="11"><title>${label}: ${Math.round(v * 100)} / 100</title>${label}</text>`; }).join('');
-    return `<div class="radar-wrap"><svg viewBox="0 0 360 310" role="img" aria-label="Trading performance radar score ${score} out of 100"><title>Performance score ${score} / 100. Normalised metrics, not a prediction of future results.</title>${grid}${axes}<polygon points="${shape}" fill="var(--accent)" fill-opacity=".18" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${labels}<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="19" font-weight="700" fill="var(--text)">${score}</text></svg></div>`;
+    return `<div class="radar-wrap"><svg viewBox="0 0 360 310" role="img" aria-label="Descriptive performance score ${score} out of 100"><title>Descriptive composite based on ${values.length} closed trades; small samples adjusted towards 50. Not a forecast.</title>${grid}${axes}<polygon points="${shape}" fill="var(--accent)" fill-opacity=".18" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${labels}<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="19" font-weight="700" fill="var(--text)">${score}</text></svg></div>`;
 }
+
+function tradeSession(dt) {
+    // Entry time is interpreted as entered; session boundaries are in UTC.
+    // Overlap periods are deliberately classified separately.
+    if (!dt || !/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(dt)) return '';
+    const minutes = Number(dt.slice(11, 13)) * 60 + Number(dt.slice(14, 16));
+    if (minutes >= 13 * 60 && minutes < 16 * 60) return 'London / New York overlap';
+    if (minutes >= 8 * 60 && minutes < 16 * 60) return 'London';
+    if (minutes >= 13 * 60 && minutes < 22 * 60) return 'New York';
+    if (minutes >= 0 && minutes < 9 * 60) return 'Tokyo';
+    return 'Sydney / Asia';
+}
+function tradeDuration(t) {
+    if (!t.dt || !t.xdt) return '';
+    const delta = (new Date(t.xdt).getTime() - new Date(t.dt).getTime()) / 60000;
+    if (!Number.isFinite(delta) || delta < 0) return '';
+    return delta >= 1440 ? `${Math.floor(delta / 1440)}d ${Math.floor(delta % 1440 / 60)}h` : delta >= 60 ? `${Math.floor(delta / 60)}h ${Math.floor(delta % 60)}m` : `${Math.round(delta)}m`;
+}
+function plannedRR(t) {
+    const entry = Number(t.entry), stop = Number(t.stopLoss), target = Number(t.takeProfit);
+    if (!(entry > 0 && stop > 0 && target > 0)) return '';
+    const direction = t.side === 'Sell' ? -1 : 1;
+    const risk = (entry - stop) * direction;
+    const reward = (target - entry) * direction;
+    return risk > 0 && reward > 0 ? `1:${(reward / risk).toFixed(2)}` : '';
+}
+function viewTrade(id) {
+    const t = data.trades.find(item => item.id === id);
+    if (!t) return;
+    const cell = (label, value) => `<div class="trade-detail-cell"><span class="muted small">${label}</span><strong>${esc(value === null || value === undefined ? '' : value)}</strong></div>`;
+    const shots = (t.screenshots || []).map((item, i) => {
+        const src = screenshotSrc(item);
+        return src ? `<a href="${esc(src)}" target="_blank" rel="noopener"><img src="${esc(src)}" alt="Trade screenshot ${i + 1}" class="trade-detail-image"></a>` : '';
+    }).join('');
+    const body = `<div class="trade-detail-grid">
+        ${cell('Instrument', t.pair)}${cell('Account', acctName(t.account))}
+        ${cell('Direction', t.side === 'Sell' ? 'Short' : 'Long')}${cell('Result', labelResult(t))}
+        ${cell('Entry', t.entry)}${cell('Exit', t.exit ?? '')}
+        ${cell('Entry Date', t.dt?.replace('T', ' ') || '')}${cell('Exit Date', t.xdt?.replace('T', ' ') || '')}
+        ${cell('Session', t.session || '')}${cell('Duration', tradeDuration(t))}
+        ${cell('Position Size', t.lots)}${cell('Gross P&L', t.pl == null ? '' : money(t.pl))}
+        ${cell('Commission', money(t.comm))}${cell('Other Fees', money(t.charges))}
+        ${cell('Net P&L', closed(t) ? money(pnl(t)) : '')}${cell('Planned R:R', plannedRR(t))}
+        ${cell('Stop Loss', t.stopLoss ?? '')}${cell('Take Profit', t.takeProfit ?? '')}
+        ${cell('Strategy', t.setup || '')}${cell('Reviewed', t.reviewed ? 'Yes' : 'No')}
+        ${cell('Tags', t.tags || '')}${cell('Mistakes / Lessons', t.mistakes || '')}
+    </div>${t.notes ? `<div class="trade-detail-notes"><strong>Notes</strong><p>${esc(t.notes)}</p></div>` : ''}${shots ? `<div class="trade-detail-notes"><strong>Screenshots</strong><div class="trade-detail-shots">${shots}</div></div>` : ''}`;
+    openModal('Trade Details', body, `<button type="button" class="btn" data-action="close">Close</button><button type="button" class="btn primary" data-action="edit-viewed-trade">Edit Trade</button>`);
+    modal.dataset.trade = id;
+}
+
 function resultsChart(w, l, b) {
     const total = w + l + b; if (!total)
         return '<div class="empty">No closed trades yet</div>'; const parts = [['Wins', w, 'var(--green)'], ['Losses', l, 'var(--red)'], ['Breakeven', b, 'var(--muted)']]; return `<div class="results-chart" role="img" aria-label="Trade results: ${w} wins, ${l} losses, ${b} breakeven"><div class="results-bars">${parts.map(([name, n, color]) => `<div class="results-bar-col"><strong>${n}</strong><div class="results-bar-track"><div class="results-bar" style="height:${n ? Math.max(4, 100 * n / Math.max(w, l, b)) : 0}%;background:${color}"></div></div><span>${name}</span></div>`).join('')}</div></div>`;
@@ -477,8 +546,19 @@ function tradeEditor(id) {
         view = 'settings';
         render();
         return;
-    } const v = t || { account: account !== 'all' ? account : accounts()[0].id, dt: now, side: 'Buy', lots: 0.01, comm: 0, charges: 0 }; const body = `<form id="trade-form" class="form-grid"><div class="field"><label>Account</label><select name="account">${accounts().map(a => `<option value="${esc(a.id)}" ${v.account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>${field('pair', 'Instrument', v.pair || '', 'text', 'required maxlength="20" placeholder="XAUUSD"')}<div class="field"><label>Direction</label><select name="side"><option value="Buy" ${v.side === 'Buy' ? 'selected' : ''}>Buy / Long</option><option value="Sell" ${v.side === 'Sell' ? 'selected' : ''}>Sell / Short</option></select></div>${field('lots', 'Position size (lots)', v.lots, 'number', 'required min="0.000001" step="any"')}${field('dt', 'Entry date and time', v.dt?.slice(0, 16) || now, 'datetime-local', 'required')}${field('xdt', 'Exit date and time', v.xdt?.slice(0, 16) || '', 'datetime-local')}${field('entry', 'Entry price', v.entry ?? '', 'number', 'required min="0.00000001" step="any"')}${field('exit', 'Exit price (optional)', v.exit ?? '', 'number', 'min="0.00000001" step="any"')}${field('pl', 'Gross P&L (optional)', v.pl ?? '', 'number', 'step="any"')}${field('comm', 'Commission', v.comm ?? 0, 'number', 'min="0" step="any"')}${field('charges', 'Other fees', v.charges ?? 0, 'number', 'min="0" step="any"')}${field('setup', 'Strategy / setup', v.setup || '')}${field('stopLoss', 'Planned stop loss (optional)', v.stopLoss ?? '', 'number', 'step="any"')}${field('takeProfit', 'Planned take profit (optional)', v.takeProfit ?? '', 'number', 'step="any"')}${field('tags', 'Tags (comma-separated)', v.tags || '', 'text', 'maxlength="250"')}${field('mistakes', 'Mistakes / lessons', v.mistakes || '', 'text', 'maxlength="500"')}<div class="field full"><label class="review-checkbox"><input type="checkbox" name="reviewed" value="yes" ${v.reviewed ? 'checked' : ''}> Mark this trade as reviewed</label></div><div class="field full"><label>Notes</label><textarea name="notes" maxlength="5000">${esc(v.notes || '')}</textarea></div><div class="field full"><label>Trade screenshots</label><input id="trade-screenshot-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><div class="small muted">Add screenshots or remove them individually. Images are saved with this trade.</div><div id="screenshot-list" class="screenshot-list"></div></div></form>`; openModal(t ? 'Edit trade' : 'Add trade', body, `${t ? '<button type="button" class="btn danger" data-action="delete-trade">Delete trade</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-trade">Save trade</button>`); modal.dataset.trade = id || ''; screenshotDraft = Array.isArray(v.screenshots) ? structuredClone(v.screenshots) : []; renderScreenshots();
+    } const v = t || { account: account !== 'all' ? account : accounts()[0].id, dt: now, side: 'Buy', lots: 0.01, comm: 0, charges: 0 }; const body = `<form id="trade-form" class="form-grid"><div class="field"><label>Account</label><select name="account">${accounts().map(a => `<option value="${esc(a.id)}" ${v.account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></div>${field('pair', 'Instrument', v.pair || '', 'text', 'required maxlength="20" placeholder="XAUUSD"')}<div class="field"><label>Direction</label><select name="side"><option value="Buy" ${v.side === 'Buy' ? 'selected' : ''}>Buy / Long</option><option value="Sell" ${v.side === 'Sell' ? 'selected' : ''}>Sell / Short</option></select></div>${field('lots', 'Position size (lots)', v.lots, 'number', 'required min="0.000001" step="any"')}${field('dt', 'Entry date and time', v.dt?.slice(0, 16) || now, 'datetime-local', 'required')}${field('xdt', 'Exit date and time', v.xdt?.slice(0, 16) || '', 'datetime-local')}${field('entry', 'Entry price', v.entry ?? '', 'number', 'required min="0.00000001" step="any"')}${field('exit', 'Exit price (optional)', v.exit ?? '', 'number', 'min="0.00000001" step="any"')}${field('pl', 'Gross P&L (optional)', v.pl ?? '', 'number', 'step="any"')}${field('comm', 'Commission', v.comm ?? 0, 'number', 'min="0" step="any"')}${field('charges', 'Other fees', v.charges ?? 0, 'number', 'min="0" step="any"')}<div class="field"><label for="f-session">Trading Session</label><select id="f-session" name="session">${['Auto (UTC)', 'Sydney', 'Tokyo', 'London', 'New York', 'London / New York overlap', 'Sydney / Asia', 'Other'].map(x => `<option value="${x === 'Auto (UTC)' ? '' : x}" ${((v.session || '') === (x === 'Auto (UTC)' ? '' : x)) ? 'selected' : ''}>${x}</option>`).join('')}</select><span class="muted small">Auto uses the entry time as UTC. Choose manually if your timestamps use another timezone.</span></div><div class="field full"><div class="trade-auto-summary" id="trade-auto-summary" aria-live="polite"></div></div>${field('setup', 'Strategy / setup', v.setup || '')}${field('stopLoss', 'Planned stop loss (optional)', v.stopLoss ?? '', 'number', 'step="any"')}${field('takeProfit', 'Planned take profit (optional)', v.takeProfit ?? '', 'number', 'step="any"')}${field('tags', 'Tags (comma-separated)', v.tags || '', 'text', 'maxlength="250"')}${field('mistakes', 'Mistakes / lessons', v.mistakes || '', 'text', 'maxlength="500"')}<div class="field full"><label class="review-checkbox"><input type="checkbox" name="reviewed" value="yes" ${v.reviewed ? 'checked' : ''}> Mark this trade as reviewed</label></div><div class="field full"><label>Notes</label><textarea name="notes" maxlength="5000">${esc(v.notes || '')}</textarea></div><div class="field full"><label>Trade screenshots</label><input id="trade-screenshot-upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple><div class="small muted">Add screenshots or remove them individually. Images are saved with this trade.</div><div id="screenshot-list" class="screenshot-list"></div></div></form>`; openModal(t ? 'Edit trade' : 'Add trade', body, `${t ? '<button type="button" class="btn danger" data-action="delete-trade">Delete trade</button>' : ''}<button type="button" class="btn" data-action="close">Cancel</button><button type="button" class="btn primary" data-action="save-trade">Save trade</button>`); modal.dataset.trade = id || ''; screenshotDraft = Array.isArray(v.screenshots) ? structuredClone(v.screenshots) : []; renderScreenshots(); updateTradePreview();
 }
+function updateTradePreview() {
+    const form = modal.querySelector('#trade-form'), output = modal.querySelector('#trade-auto-summary');
+    if (!form || !output) return;
+    const f = new FormData(form), get = key => String(f.get(key) || '');
+    const t = { dt: get('dt'), xdt: get('xdt'), entry: get('entry'), stopLoss: get('stopLoss'), takeProfit: get('takeProfit'), side: get('side') };
+    const net = get('pl') !== '' ? Number(get('pl')) - Number(get('comm') || 0) - Number(get('charges') || 0) : null;
+    const session = get('session') || tradeSession(t.dt);
+    output.innerHTML = `<div><span>Session</span><strong>${esc(session)}</strong></div><div><span>Duration</span><strong>${esc(tradeDuration(t))}</strong></div><div><span>Planned R:R</span><strong>${esc(plannedRR(t))}</strong></div><div><span>Net P&L</span><strong>${net === null ? '' : esc(money(net))}</strong></div>`;
+}
+modal.addEventListener('input', e => { if (e.target.closest('#trade-form')) updateTradePreview(); });
+modal.addEventListener('change', e => { if (e.target.closest('#trade-form')) updateTradePreview(); });
 function screenshotSrc(item) { return typeof item === 'string' ? item : (item?.data || item?.url || item?.src || ''); }
 function renderScreenshots() {
     const el = modal.querySelector('#screenshot-list'); if (!el)
@@ -513,7 +593,7 @@ async function saveTrade() {
     const form = document.getElementById('trade-form'); if (!form.reportValidity())
         return; const f = new FormData(form), get = k => String(f.get(k) || '').trim(), id = modal.dataset.trade, old = data.trades.find(t => t.id === id), dt = get('dt'), xdt = get('xdt'); if (xdt && xdt < dt)
         return toast('Exit cannot be before entry.'); if (get('pl') && !xdt && !get('exit'))
-        return toast('Enter an exit date or exit price for a closed trade.'); const n = clone(), t = { ...(old || {}), id: id || uid(), account: get('account'), pair: get('pair').toUpperCase(), side: get('side'), lots: Number(get('lots')), dt, xdt, entry: Number(get('entry')), exit: get('exit') ? Number(get('exit')) : null, pl: get('pl') ? Number(get('pl')) : null, comm: Number(get('comm') || 0), charges: Number(get('charges') || 0), setup: get('setup'), stopLoss: get('stopLoss') ? Number(get('stopLoss')) : null, takeProfit: get('takeProfit') ? Number(get('takeProfit')) : null, tags: get('tags'), mistakes: get('mistakes'), reviewed: f.get('reviewed') === 'yes', notes: get('notes'), updated: Date.now(), created: old?.created || Date.now(), sample: old?.sample || false, screenshots: structuredClone(screenshotDraft) }; if (!(t.entry > 0 && t.lots > 0))
+        return toast('Enter an exit date or exit price for a closed trade.'); const n = clone(), t = { ...(old || {}), id: id || uid(), account: get('account'), pair: get('pair').toUpperCase(), side: get('side'), lots: Number(get('lots')), dt, xdt, entry: Number(get('entry')), exit: get('exit') ? Number(get('exit')) : null, pl: get('pl') ? Number(get('pl')) : null, comm: Number(get('comm') || 0), charges: Number(get('charges') || 0), session: get('session') || tradeSession(dt), setup: get('setup'), stopLoss: get('stopLoss') ? Number(get('stopLoss')) : null, takeProfit: get('takeProfit') ? Number(get('takeProfit')) : null, tags: get('tags'), mistakes: get('mistakes'), reviewed: f.get('reviewed') === 'yes', notes: get('notes'), updated: Date.now(), created: old?.created || Date.now(), sample: old?.sample || false, screenshots: structuredClone(screenshotDraft) }; if (!(t.entry > 0 && t.lots > 0))
         return toast('Entry price and position size must be greater than zero.'); if (t.exit !== null && t.exit <= 0)
         return toast('Exit price must be greater than zero.'); if (!t.xdt && t.exit !== null)
         t.xdt = t.dt; if (t.xdt && t.pl === null)
@@ -748,7 +828,7 @@ app.addEventListener('click', async (e) => {
         render();
         return;
     } const edit = e.target.closest('[data-edit]'); if (edit) {
-        tradeEditor(edit.dataset.edit);
+        viewTrade(edit.dataset.edit);
         return;
     } const day = e.target.closest('[data-day]'); if (day) {
         selectedDay = selectedDay === day.dataset.day ? null : day.dataset.day;
@@ -868,7 +948,8 @@ modal.addEventListener('click', async (e) => {
         return;
     e.preventDefault();
     if (action === 'close')
-        modal.close(); if (action === 'save-trade')
+        modal.close(); if (action === 'edit-viewed-trade')
+        tradeEditor(modal.dataset.trade); if (action === 'save-trade')
         await saveTrade(); if (action === 'delete-trade')
         await deleteTrade(); if (action === 'save-account')
         await saveAccount(); if (action === 'save-flow')

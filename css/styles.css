@@ -1253,11 +1253,11 @@ html[data-theme=dark] .day.win .amount,html[data-theme=dark] .day.loss .amount,h
     flex-direction:column;
     align-items:center;
     justify-content:center;
-    min-height:250px
+    min-height:350px
 }
 .radar-wrap svg {
-    width:min(100%,360px);
-    max-height:290px
+    width:min(100%,490px);
+    max-height:420px
 }
 .radar-caption {
     font-size:11px;
@@ -2404,3 +2404,317 @@ html[data-theme="dark"] {
 .asset-icon-native { position: relative; border: 0; background: transparent; }
 .asset-icon-native img { position: relative; z-index: 1; width: 100%; height: 100%; object-fit: contain; padding: 0; }
 .asset-icon-native .asset-fallback { position: absolute; inset: 0; display: grid; place-items: center; font-size: 9px; }
+
+/* Calendar: compact, evenly aligned navigation for month and year. */
+.calendar-head.calendar-picker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+.calendar-picker .calendar-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 36px;
+    width: 36px;
+    height: 38px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+}
+.calendar-picker .calendar-nav-btn:hover {
+    background: var(--soft);
+}
+.calendar-picker-field:has(#calendar-month) { width: 150px; }
+.calendar-picker-field:has(#calendar-year) { width: 100px; }
+.calendar-picker-field select { width: 100%; height: 38px; min-width: 0; }
+@media (max-width: 480px) {
+    .calendar-head.calendar-picker { gap: 5px; }
+    .calendar-picker .calendar-nav-btn { flex-basis: 28px; width: 28px; height: 36px; font-size: 17px; }
+    .calendar-picker-field:has(#calendar-month) { width: min(32vw, 135px); }
+    .calendar-picker-field:has(#calendar-year) { width: min(22vw, 90px); }
+    .calendar-picker-field select { height: 36px; padding-left: 8px; padding-right: 20px; font-size: 13px; }
+}
+
+/* Profile settings: balanced desktop grid and mobile stacking. */
+.settings-profile .profile-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.settings-profile .profile-fields .field { min-width: 0; align-items: flex-start; }
+.settings-profile .profile-value { width: 100%; overflow-wrap: anywhere; min-height: 24px; font-weight: 600; }
+.settings-profile .profile-fields .btn { margin-top: 8px; }
+.settings-profile > p { margin-top: 16px; }
+@media (max-width: 700px) { .settings-profile .profile-fields { grid-template-columns: 1fr; gap: 14px; } }
+
+/* Signed-in username immediately before the Dashboard navigation. */
+.header-username { color: var(--accent, #2563eb); font-size: 14px; font-weight: 650; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) { .header-username { max-width: 115px; font-size: 12px; } }
+
+
+/* Neutral dark palette: true black canvas, charcoal surfaces, no navy/purple tint.
+   Keep --accent user-configurable in Settings. */
+html[data-theme="dark"] {
+    --bg: #000000;
+    --surface: #111113;
+    --text: #f1f1f3;
+    --muted: #a4a4ad;
+    --border: #2b2b30;
+    --soft: #1c1c20;
+    --green: #35d977;
+    --red: #ff6570;
+    color-scheme: dark;
+}
+html[data-theme="light"] {
+    --bg: #f7f7f8;
+    --surface: #ffffff;
+    --text: #1c1c20;
+    --muted: #707079;
+    --border: #dedee2;
+    --soft: #f0f0f2;
+    --green: #148e4c;
+    --red: #d83f4c;
+    color-scheme: light;
+}
+/* Calendar uses subdued profit/loss fills while keeping the numbers readable. */
+html[data-theme="dark"] .day.win {
+    background: #123523;
+}
+html[data-theme="dark"] .day.loss {
+    background: #3c1d23;
+}
+html[data-theme="dark"] .day.even {
+    background: #202024;
+}
+html[data-theme="dark"] .day.win .amount,
+html[data-theme="dark"] .day.loss .amount,
+html[data-theme="dark"] .day.even .amount {
+    color: var(--text);
+}
+/* Preserve coloured data labels and a neutral default for buttons/cards. */
+html[data-theme="dark"] input,
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+    color: var(--text);
+}
+
+
+/* Wider desktop workspace: remove excessive side gutters without browser zoom. */
+@media (min-width: 1101px) {
+    .content {
+        width: 100%;
+        max-width: 1760px;
+        margin-inline: auto;
+        padding: 28px clamp(24px, 2.4vw, 48px) 60px;
+    }
+    .topbar {
+        padding-inline: max(clamp(24px, 2.4vw, 48px), calc((100vw - 1760px) / 2));
+    }
+}
+
+/* Account selection lives in the Trades toolbar, not the global header. */
+.toolbar #account-filter { min-width: 140px; max-width: 220px; flex: 0 1 190px; }
+@media (max-width: 640px) {
+    .toolbar #account-filter { min-width: 0; flex: 1 1 135px; max-width: none; }
+}
+
+/* Standard understated calendar arrow controls. */
+.calendar-picker .calendar-nav-btn {
+    border-radius: 8px;
+    font-family: Arial, sans-serif;
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--muted);
+    transition: background-color .15s ease, color .15s ease;
+}
+.calendar-picker .calendar-nav-btn span { display: block; line-height: 1; transform: translateY(-1px); }
+.calendar-picker .calendar-nav-btn:hover { color: var(--text); }
+.calendar-picker .calendar-nav-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Four compact dashboard KPI cards with legible secondary values. */
+.metrics-dashboard-four { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.metrics-dashboard-four .panel { min-width: 0; min-height: 148px; padding: 17px 18px; }
+.metrics-dashboard-four .metric-label { margin-bottom: 12px; letter-spacing: .04em; }
+.metrics-dashboard-four .metric-value,
+.metrics-dashboard-four .win-reference-value { font-weight: 750; font-size: clamp(22px, 1.9vw, 28px); line-height: 1.18; }
+.metrics-dashboard-four .metric-sub { font-size: 11px; line-height: 1.4; }
+.metrics-dashboard-four .metric-micro { font-size: 10px; margin-top: 6px; line-height: 1.4; }
+.metrics-dashboard-four .ratio-bar { margin-top: 10px; }
+@media (max-width: 1050px) { .metrics-dashboard-four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 580px) { .metrics-dashboard-four { grid-template-columns: 1fr; } }
+
+/* Four reference-style cards: one even row on desktop, responsive below. */
+.metrics-dashboard-four {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+.metrics-dashboard-four .panel {
+    min-width: 0;
+    min-height: 112px;
+    padding: 13px 15px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.metrics-dashboard-four .metric-label {
+    margin-bottom: 8px;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .01em;
+}
+.metrics-dashboard-four .metric-value,
+.metrics-dashboard-four .win-reference-value {
+    font-size: clamp(18px, 1.55vw, 23px);
+    font-weight: 700;
+    line-height: 1.2;
+}
+.metrics-dashboard-four .metric-sub {
+    font-size: 12px;
+    margin-top: 5px;
+    line-height: 1.35;
+}
+.metrics-dashboard-four .metric-week-change {
+    margin-top: 5px;
+    font-size: 10px;
+}
+.metrics-dashboard-four .win-reference-layout {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 44px;
+}
+.metrics-dashboard-four .win-reference-right {
+    width: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+}
+.metrics-dashboard-four .win-reference-arc {
+    width: 46px;
+    height: 46px;
+    display: block;
+}
+.metrics-dashboard-four .win-reference-counts { display: none; }
+.metrics-dashboard-four .ratio-bar {
+    margin-top: 7px;
+    height: 7px;
+}
+@media (max-width: 900px) {
+    .metrics-dashboard-four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+    .metrics-dashboard-four { grid-template-columns: 1fr; }
+}
+
+/* Final dashboard layout fix.
+   Earlier .metrics.metrics-reference (two classes) overrode the four-card
+   rule (one class), leaving the fourth card on a second row. */
+.metrics.metrics-reference.metrics-dashboard-four {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    align-items: stretch;
+    width: 100%;
+}
+.metrics.metrics-reference.metrics-dashboard-four > .panel {
+    min-width: 0;
+    width: 100%;
+    min-height: 136px;
+    padding: 17px 18px;
+    justify-content: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+.metrics.metrics-reference.metrics-dashboard-four .metric-value,
+.metrics.metrics-reference.metrics-dashboard-four .win-reference-value {
+    font-size: clamp(21px, 1.65vw, 28px);
+    font-weight: 750;
+}
+.metrics.metrics-reference.metrics-dashboard-four .metric-label {
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0;
+}
+.dashboard-grid {
+    grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+    gap: 14px;
+    align-items: stretch;
+}
+.dashboard-grid > .panel {
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+}
+.dashboard-grid .panel-head h3 { font-size: 15px; font-weight: 650; }
+.dashboard-grid .radar-wrap { min-height: 350px; }
+.dashboard-grid .radar-wrap svg { width: min(100%, 490px); }
+html[data-theme="dark"] {
+    --bg: #000000;
+    --surface: #111111;
+    --soft: #1c1c1c;
+    --border: #303034;
+    --text: #f4f4f5;
+    --muted: #a6a6ad;
+    --green: #35d977;
+    --red: #ff6570;
+    color-scheme: dark;
+}
+html[data-theme="dark"] body,
+html[data-theme="dark"] .main { background: #000000; }
+html[data-theme="dark"] .topbar,
+html[data-theme="dark"] .sidebar { background: #111111; }
+@media (max-width: 950px) {
+    .metrics.metrics-reference.metrics-dashboard-four {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 540px) {
+    .metrics.metrics-reference.metrics-dashboard-four {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* Compact comparison percentages on the existing four cards. */
+.metrics-dashboard-four .metric-change { display: inline-block; vertical-align: baseline; margin-left: 5px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.metrics-dashboard-four .metric-inline-change { min-height: 0; line-height: 1; }
+.metrics-dashboard-four .metric-inline-change .metric-change { margin-left: 0; }
+
+/* Uniform dashboard gutters: all four metrics, both charts and calendar. */
+:root { --dashboard-card-gap: 14px; }
+.metrics.metrics-reference.metrics-dashboard-four {
+    column-gap: var(--dashboard-card-gap);
+    row-gap: var(--dashboard-card-gap);
+    margin-bottom: var(--dashboard-card-gap);
+}
+.dashboard-grid.dashboard-analytics {
+    column-gap: var(--dashboard-card-gap);
+    row-gap: var(--dashboard-card-gap);
+    margin-bottom: var(--dashboard-card-gap);
+}
+.dashboard-calendar-full { margin-top: 0; }
+.dashboard-grid.dashboard-analytics > .panel {
+    box-sizing: border-box;
+    min-width: 0;
+    height: 100%;
+}
+
+/* Stronger, consistent profit/loss colours across both themes. */
+html[data-theme="dark"] { --green: #00e676; --red: #ff4055; }
+html[data-theme="light"] { --green: #009e49; --red: #e5223e; }
+html[data-theme="dark"] .day.win { background: #07512e; }
+html[data-theme="dark"] .day.loss { background: #631b2a; }
+html[data-theme="light"] .day.win { background: #c5f5d9; }
+html[data-theme="light"] .day.loss { background: #ffd0d7; }
+.header-balance.positive { color: var(--green); }
+.header-balance.negative { color: var(--red); }

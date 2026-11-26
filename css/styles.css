@@ -2718,3 +2718,28 @@ html[data-theme="light"] .day.win { background: #c5f5d9; }
 html[data-theme="light"] .day.loss { background: #ffd0d7; }
 .header-balance.positive { color: var(--green); }
 .header-balance.negative { color: var(--red); }
+
+/* Dashboard indicators: semicircular trade outcomes and circular profit factor. */
+.metrics-dashboard-four .win-reference-right { width: 100px; height: auto; flex: 0 0 100px; }
+.metrics-dashboard-four .win-reference-arc { width: 100px; height: 68px; display: block; }
+.metrics-dashboard-four .win-gauge-counts { display: flex; justify-content: space-around; gap: 3px; margin-top: -12px; font-size: 10px; font-weight: 700; }
+.metrics-dashboard-four .win-gauge-counts > span:nth-child(2) { color: var(--muted); }
+@media (max-width: 600px) {
+ .metrics-dashboard-four .win-reference-right { width: 85px; flex-basis: 85px; }
+ .metrics-dashboard-four .win-reference-arc { width: 85px; height: 60px; }
+ .metrics-dashboard-four .win-gauge-counts { font-size: 9px; }
+}
+
+/* Final dashboard: consistent gaps and reference-accurate win-rate gauge. */
+.metrics.metrics-dashboard-four, .dashboard-grid.dashboard-analytics { gap: 14px !important; }
+.metrics-dashboard-four .win-card { display: flex; flex-direction: column; justify-content: space-between; }
+.metrics-dashboard-four .win-card .metric-label { margin-bottom: 6px; }
+.metrics-dashboard-four .win-card .win-reference-layout { width: 100%; flex: 1; min-height: 75px; align-items: center; gap: 10px; }
+.metrics-dashboard-four .win-card .win-reference-right { width: 116px; flex: 0 0 116px; height: auto; align-self: center; }
+.metrics-dashboard-four .win-card .win-reference-arc { width: 116px; height: 77px; display: block; }
+.metrics-dashboard-four .win-card .win-gauge-counts { display: flex; justify-content: space-between; gap: 5px; width: 100%; margin-top: -12px; font-size: 10px; font-weight: 700; }
+.metrics-dashboard-four .win-gauge-counts span { border-radius: 999px; padding: 3px 5px; white-space: nowrap; }
+.metrics-dashboard-four .win-gauge-counts .win-pill { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
+.metrics-dashboard-four .win-gauge-counts .even-pill { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
+.metrics-dashboard-four .win-gauge-counts .loss-pill { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+@media (max-width: 600px) { .metrics-dashboard-four .win-card .win-reference-right { width: 106px; flex-basis: 106px; } .metrics-dashboard-four .win-card .win-reference-arc { width: 106px; height: 72px; } }

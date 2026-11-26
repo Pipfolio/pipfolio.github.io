@@ -955,7 +955,7 @@ async function handleAuth(form) {
         if (mode === 'signup') {
             if (r.data?.session?.user) {
                 user = r.data.session.user;
-                await load();
+                try { await load(); } catch (error) { showJournalError(error); }
             } else {
                 auth('signin', 'Account created. Check your email to confirm your address, then sign in.');
             }
@@ -964,13 +964,20 @@ async function handleAuth(form) {
             auth('signin', 'If the address is registered, a reset email has been sent.');
         else if (r.data?.session?.user) {
             user = r.data.session.user;
-            await load();
+            try { await load(); } catch (error) { showJournalError(error); }
         } else {
             throw Error('Sign-in did not return a valid session. Please try again.');
         }
     }
         catch (e) {
-            toast(e.message);
+            console.error('Pipfolio authentication error:', e);
+            const notice = document.createElement('div');
+            notice.className = 'notice';
+            notice.setAttribute('role', 'alert');
+            notice.textContent = 'Sign-in failed: ' + (e?.message || 'Please try again.');
+            const currentForm = app.querySelector('#auth-form');
+            if (currentForm) { currentForm.parentElement.querySelector('.auth-error')?.remove(); notice.classList.add('auth-error'); currentForm.before(notice); }
+            else toast(notice.textContent);
         } finally {
             authRequestPending = false;
             if (submit?.isConnected) submit.disabled = false;
@@ -979,6 +986,7 @@ async function handleAuth(form) {
 function showJournalError(error) {
     app.innerHTML = '<div class="auth"><div class="auth-card"><h1>Journal unavailable</h1><p class="muted">You are still signed in, but your journal could not be loaded. Your data has not been deleted.</p><p id="load-error"></p><button class="btn primary" type="button" id="retry-load">Retry</button></div></div>';
     document.getElementById('load-error').textContent = error?.message || 'Unknown error';
+    console.error('Pipfolio journal loading error:', error);
     document.getElementById('retry-load').addEventListener('click', () => load().catch(showJournalError), { once: true });
 }
 function openRecoveryDialog() {
@@ -996,6 +1004,10 @@ async function init() {
         if (event === 'PASSWORD_RECOVERY') {
             user = session?.user || user;
             queueMicrotask(openRecoveryDialog);
+            return;
+        }
+        if (event === 'SIGNED_IN' && session?.user) {
+            user = session.user;
             return;
         }
         if (event === 'SIGNED_OUT') {

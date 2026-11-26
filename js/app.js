@@ -6,6 +6,8 @@ const app = document.getElementById('app'), modal = document.getElementById('mod
 let screenshotDraft = [];
 let explicitSignOut = false;
 let authRequestPending = false;
+let recoveryMode = false;
+let authInitialised = false;
 let user = null, revision = 0, view = 'dashboard', account = 'all', search = '', filter = 'all', month = new Date().getMonth(), year = new Date().getFullYear(), selectedDay = '', busy = false;
 let data = { version: 3, trades: [], settings: { accounts: [] }, preferences: { theme: 'light', accent: '#C0C0C0', quote: '' } };
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -950,13 +952,21 @@ async function handleAuth(form) {
             r = await db.auth.signInWithPassword({ email, password });
         if (r.error)
             throw r.error;
-        if (mode === 'signup')
-            auth('signin', 'Account created. Check your email if confirmation is required.');
+        if (mode === 'signup') {
+            if (r.data?.session?.user) {
+                user = r.data.session.user;
+                await load();
+            } else {
+                auth('signin', 'Account created. Check your email to confirm your address, then sign in.');
+            }
+        }
         else if (mode === 'reset')
             auth('signin', 'If the address is registered, a reset email has been sent.');
-        else if (r.data?.user) {
-            user = r.data.user;
+        else if (r.data?.session?.user) {
+            user = r.data.session.user;
             await load();
+        } else {
+            throw Error('Sign-in did not return a valid session. Please try again.');
         }
     }
         catch (e) {
@@ -966,46 +976,55 @@ async function handleAuth(form) {
             if (submit?.isConnected) submit.disabled = false;
         }
 }
+function showJournalError(error) {
+    app.innerHTML = '<div class="auth"><div class="auth-card"><h1>Journal unavailable</h1><p class="muted">You are still signed in, but your journal could not be loaded. Your data has not been deleted.</p><p id="load-error"></p><button class="btn primary" type="button" id="retry-load">Retry</button></div></div>';
+    document.getElementById('load-error').textContent = error?.message || 'Unknown error';
+    document.getElementById('retry-load').addEventListener('click', () => load().catch(showJournalError), { once: true });
+}
+function openRecoveryDialog() {
+    recoveryMode = true;
+    openModal('Set a new password', `<form id="password-form">${field('password', 'New password', '', 'password', 'required minlength="8" autocomplete="new-password"')}</form>`, `<button type="button" class="btn primary" data-action="update-password">Update password</button>`);
+}
 async function init() {
     if (!db) {
         app.textContent = 'Unable to load Supabase. Check your internet connection.';
         return;
     }
-    const r = await db.auth.getSession();
-    if (r.error) {
-        auth('signin', 'Could not verify your session: ' + r.error.message);
-        return;
-    }
-    if (r.data?.session?.user) {
-        user = r.data.session.user;
-        try {
-            await load();
+    // Register before reading the session: password recovery links may emit
+    // PASSWORD_RECOVERY during initialisation, not after getSession resolves.
+    db.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+            user = session?.user || user;
+            queueMicrotask(openRecoveryDialog);
+            return;
         }
-        catch (e) {
-            app.innerHTML = '<div class="auth"><div class="auth-card"><h1>Journal unavailable</h1><p class="muted">Your session is still active, but your journal could not be loaded.</p><p id="load-error"></p><button class="btn primary" type="button" onclick="location.reload()">Retry</button></div></div>';
-            document.getElementById('load-error').textContent = e.message;
-        }
-    }
-    else
-        auth(); db.auth.onAuthStateChange((event, session) => {
-            if (event === 'SIGNED_OUT') {
-                // Only an explicit sign-out may clear the active interface.
-                // Transient refresh failures and cross-tab notifications must not
-                // unexpectedly discard an in-progress trade or settings edit.
-                if (!explicitSignOut) {
-                    console.warn('Pipfolio: unexpected signed-out notification; preserving current view.');
-                    toast('Your session may have expired. Save a backup and sign in again if needed.');
-                    return;
-                }
+        if (event === 'SIGNED_OUT') {
+            if (explicitSignOut) {
                 user = null;
                 explicitSignOut = false;
+                recoveryMode = false;
+                if (modal.open) modal.close();
                 auth();
+            } else if (authInitialised) {
+                // Session loss is not a click action. Keep unsaved UI visible
+                // and explain the situation rather than silently logging out.
+                toast('Your session ended. Export a backup if needed, then sign in again.');
             }
-            else if (event === 'PASSWORD_RECOVERY') {
-                user = session?.user;
-                openModal('Update password', `<form id="password-form">${field('password', 'New password', '', 'password', 'required minlength="6"')}</form>`, `<button type="button" class="btn primary" data-action="update-password">Update password</button>`);
-            }
-        });
+        }
+    });
+    let result;
+    try { result = await db.auth.getSession(); }
+    catch (error) { auth('signin', 'Could not verify your session: ' + error.message); return; }
+    if (result.error) { auth('signin', 'Could not verify your session: ' + result.error.message); return; }
+    if (result.data?.session?.user) {
+        user = result.data.session.user;
+        try { await load(); } catch (error) { showJournalError(error); }
+    } else {
+        auth();
+    }
+    authInitialised = true;
+    // Recovery callback can arrive before or after the initial session read.
+    if (recoveryMode && user && !modal.open) openRecoveryDialog();
 }
 app.addEventListener('click', async (e) => {
     const nav = e.target.closest('[data-view]'); if (nav) {
@@ -1224,13 +1243,14 @@ modal.addEventListener('click', async (e) => {
             const password = modal.querySelector('[name=password]');
             if (!password.reportValidity())
                 return;
-            const r = await db.auth.updateUser({ password: password.value });
-            if (r.error)
-                toast(r.error.message);
-            else {
+            try {
+                const r = await db.auth.updateUser({ password: password.value });
+                if (r.error) throw r.error;
+                recoveryMode = false;
                 modal.close();
-                toast('Password updated');
-            }
+                toast('Password updated successfully.');
+                if (user) { try { await load(); } catch (error) { showJournalError(error); } }
+            } catch (error) { toast('Password update failed: ' + error.message); }
         }
 });
 modal.addEventListener('submit', e => {
@@ -1318,4 +1338,4 @@ document.addEventListener('pointerout', event => {
     if (tooltip) tooltip.hidden = true;
 });
 document.getElementById('upload').addEventListener('change', e => { importFile(e.target.files[0]); e.target.value = ''; });
-init();
+init().catch(error => { console.error('Pipfolio initialisation failed', error); showJournalError(error); });

@@ -2743,3 +2743,14 @@ html[data-theme="light"] .day.loss { background: #ffd0d7; }
 .metrics-dashboard-four .win-gauge-counts .even-pill { background: color-mix(in srgb, var(--muted) 18%, transparent); color: var(--muted); }
 .metrics-dashboard-four .win-gauge-counts .loss-pill { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
 @media (max-width: 600px) { .metrics-dashboard-four .win-card .win-reference-right { width: 106px; flex-basis: 106px; } .metrics-dashboard-four .win-card .win-reference-arc { width: 106px; height: 72px; } }
+/* Four dashboard cards: aligned headings and compact win/loss legend. */
+.metrics.metrics-reference.metrics-dashboard-four > .panel { display:flex; flex-direction:column; justify-content:flex-start; }
+.metrics.metrics-reference.metrics-dashboard-four .metric-label { height:24px; min-height:24px; display:flex; align-items:flex-start; margin:0 0 12px; padding:0; line-height:20px; }
+.metrics.metrics-reference.metrics-dashboard-four .win-card .metric-label { margin-bottom:12px; flex:0 0 24px; }
+.metrics-dashboard-four .win-gauge-counts .even-pill { color:var(--accent); background:color-mix(in srgb,var(--accent) 15%,transparent); }
+.metrics-dashboard-four .win-gauge-counts > span:nth-child(2) { color:var(--accent); }
+.metrics-dashboard-four .avg-win-loss-detail { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:11px; line-height:1.4; margin-top:5px; }
+.metrics-dashboard-four .avg-win-loss-detail span { white-space:nowrap; }
+
+/* Average Win / Loss: neutral labels, coloured figures. */
+.metrics-dashboard-four .avg-win-loss-detail .avg-detail-label { color:var(--text); }

@@ -172,23 +172,27 @@ function dashboard() {
     const winShare = ts.length ? 100 * wins.length / ts.length : 0;
     const evenShare = ts.length ? 100 * breakeven / ts.length : 0;
     const lossShare = ts.length ? 100 * losses.length / ts.length : 0;
-    const gaugePath = 'M 8 57 A 49 49 0 0 1 106 57';
+    // Semicircle: green = wins, neutral = breakevens, red = losses.
+    // The three contiguous segments sum to exactly 100% of closed trades.
+    const gaugePath = 'M 10 62 A 50 50 0 0 1 110 62';
     const gaugeSegment = (colour, share, offset) => share > 0
-        ? `<path d="${gaugePath}" fill="none" stroke="${colour}" stroke-width="9" stroke-linecap="round" pathLength="100" stroke-dasharray="${Math.max(0, share - 0.8)} 100" stroke-dashoffset="${-offset}" />`
+        ? `<path d="${gaugePath}" fill="none" stroke="${colour}" stroke-width="10" pathLength="100" stroke-dasharray="${share} ${100 - share}" stroke-dashoffset="${-offset}" />`
         : '';
     const winGauge = `<div class="win-reference-layout">
         <strong class="win-reference-value">${winrate.toFixed(2)}%</strong>
-        <div class="win-reference-right" aria-label="${wins.length} wins, ${breakeven} breakeven, ${losses.length} losses">
-            <svg class="win-reference-arc" viewBox="0 0 48 48" aria-hidden="true">
-                <circle cx="24" cy="24" r="18" fill="none" stroke="var(--border)" stroke-width="7" />
-                <circle cx="24" cy="24" r="18" fill="none" stroke="var(--red)" stroke-width="7" pathLength="100" />
-                <circle cx="24" cy="24" r="18" fill="none" stroke="var(--green)" stroke-width="7" pathLength="100" stroke-dasharray="${winShare} ${100 - winShare}" transform="rotate(-90 24 24)" />
+        <div class="win-reference-right" role="img" aria-label="${wins.length} winning, ${breakeven} breakeven, ${losses.length} losing trades out of ${ts.length} closed trades">
+            <svg class="win-reference-arc" viewBox="0 0 120 82" aria-hidden="true">
+                <path d="${gaugePath}" fill="none" stroke="var(--border)" stroke-width="10" />
+                ${gaugeSegment('var(--green)', winShare, 0)}
+                ${gaugeSegment('var(--neutral-gauge, #8c96ad)', evenShare, winShare)}
+                ${gaugeSegment('var(--red)', lossShare, winShare + evenShare)}
             </svg>
+            <div class="win-gauge-counts" aria-hidden="true"><span class="win-pill">${wins.length} W</span><span class="even-pill">${breakeven} BE</span><span class="loss-pill">${losses.length} L</span></div>
         </div>
     </div>`;
     const cards = `<section class="metrics metrics-ref metrics-compact metrics-reference metrics-dashboard-four">
         <div class="panel"><div class="metric-label">Net P&L</div><div class="metric-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)} ${netPctTag}</div><div class="metric-week-change ${weeklyDifference >= 0 ? 'positive' : 'negative'}">${weeklyLabel}</div><div class="metric-sub">${ts.length} closed trades · ${money(totalFees)} fees</div></div>
-        <div class="panel"><div class="metric-label">Trade Win %</div>${winGauge}<div class="metric-inline-change">${winPctTag}</div><div class="metric-sub">${wins.length} wins · ${losses.length} losses</div></div>
+        <div class="panel win-card"><div class="metric-label">Trade Win %</div>${winGauge}</div>
         <div class="panel"><div class="metric-label">Profit Factor</div><div class="metric-value">${pf || 'N/A'} ${pfPctTag}</div><div class="metric-sub">${pfDetail}</div></div>
         <div class="panel"><div class="metric-label">Average Win / Loss</div><div class="metric-value">${ratio || 'N/A'} ${ratioPctTag}</div><div class="ratio-bar"><span style="width:${avgWin + avgLoss ? 100 * avgWin / (avgWin + avgLoss) : 50}%"></span></div><div class="metric-sub">Average winning and losing trade</div></div>
     </section>`;

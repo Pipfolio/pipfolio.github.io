@@ -48,7 +48,7 @@ function tradesBalance() {
     const tone = balance > baseline ? 'positive' : balance < baseline ? 'negative' : '';
     return `<span class="trade-toolbar-balance ${tone}" title="Estimated current balance (${esc(currencies[0])}): deposits − withdrawals + closed trade net P&amp;L; excludes open positions">${esc(money(balance))}</span>`;
 }
-const uid = () => crypto.randomUUID?.() || 'trade-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+const uid = () => globalThis.crypto?.randomUUID?.() || 'trade-' + Date.now() + '-' + Math.random().toString(36).slice(2);
 const local = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
 const closed = t => !!t.xdt || (t.exit !== null && t.exit !== undefined && t.exit !== '' && t.pl !== null && t.pl !== undefined && t.pl !== '');
 const pnl = t => num(t.pl) - num(t.comm) - num(t.charges) + num(t.adjustment);
@@ -97,13 +97,13 @@ async function save(next) {
 }
 const clone = () => structuredClone(data);
 function icons(name) { const paths = { dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>', trades: '<path d="M4 6h16M4 12h16M4 18h16"/>', calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>' }; return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`; }
-function shell(inner) { app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand"><img class="brand-icon" src="assets/pipfolio-logo.png" alt="P"><span>ipfolio</span></div><div class="header-right"><nav class="nav" aria-label="Main navigation">${['dashboard', 'trades', 'calendar', 'settings'].map(v => `<button type="button" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</nav><div class="top-actions">${view !== 'settings' ? `<select id="account-filter" aria-label="Select trading account"><option value="all">All accounts</option>${accounts().map(a => `<option value="${esc(a.id)}" ${account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select>` : ''}<button type="button" class="btn primary" data-action="add">+ Add trade</button></div></div></header><main class="content">${inner}<footer class="footer"><span>© 2026 <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.</span><span><a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a> &amp; <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">Terms of Service</a></span></footer></main></div>`; }
+function shell(inner) { app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand"><img class="brand-icon" src="assets/pipfolio-logo.png" alt="P"><span>ipfolio</span></div><div class="header-right"><span class="header-username" title="Signed-in username">${esc(user?.user_metadata?.username || user?.email?.split("@")[0] || "Account")}</span><nav class="nav" aria-label="Main navigation">${['dashboard', 'trades', 'settings'].map(v => `<button type="button" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</nav><div class="top-actions"><button type="button" class="btn primary" data-action="add">+ Add trade</button></div></div></header><main class="content">${inner}<footer class="footer"><span>© 2026 <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.</span><span><a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a> &amp; <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">Terms of Service</a></span></footer></main></div>`; }
 function render() {
     if (!user)
-        return auth(); shell(view === 'dashboard' ? dashboard() : view === 'trades' ? tradesPage() : view === 'calendar' ? calendarPage() : settingsPage());
+        return auth(); shell(view === 'dashboard' ? dashboard() : view === 'trades' ? tradesPage() : settingsPage());
 }
 function dashboard() {
-    const ts = allClosed().sort((a, b) => (a.xdt || a.dt).localeCompare(b.xdt || b.dt));
+    const ts = allClosed().sort((a, b) => String(a.xdt || a.dt || '').localeCompare(String(b.xdt || b.dt || '')));
     const wins = ts.filter(t => pnl(t) > 0);
     const losses = ts.filter(t => pnl(t) < 0);
     const net = ts.reduce((sum, t) => sum + pnl(t), 0);
@@ -132,6 +132,41 @@ function dashboard() {
     const weeklyDifference = recentWeek - previousWeek;
     const weeklyLabel = `${weeklyDifference >= 0 ? '▲' : '▼'} ${money(Math.abs(weeklyDifference))} vs prior 7d`;
     const totalFees = ts.reduce((sum, t) => sum + num(t.comm) + num(t.charges), 0);
+    const recentTrades = ts.filter(t => { const d = tradeDay(t); return d >= utcDay - 6 * dayMs && d < utcDay + dayMs; });
+    const priorTrades = ts.filter(t => { const d = tradeDay(t); return d >= utcDay - 13 * dayMs && d < utcDay - 6 * dayMs; });
+    const rateFor = trades => trades.length ? 100 * trades.filter(t => pnl(t) > 0).length / trades.length : null;
+    const recentRate = rateFor(recentTrades);
+    const priorRate = rateFor(priorTrades);
+    const rateChange = recentRate !== null && priorRate !== null ? recentRate - priorRate : null;
+    const rateDetail = rateChange === null ? '7d comparison unavailable' : `${rateChange >= 0 ? '+' : ''}${rateChange.toFixed(1)} pp vs prior 7d`;
+    const pfDetail = !ts.length ? 'No closed trades' : grossLoss === 0 ? (grossWin > 0 ? 'No losing trades' : 'No gains or losses') : 'Gross profit ÷ gross loss';
+    // Percentage changes compare the latest seven calendar days with the preceding seven.
+    // An undefined baseline is displayed as N/A instead of a misleading percentage.
+    const periodMetrics = trades => {
+        const positive = trades.filter(t => pnl(t) > 0).map(pnl);
+        const negative = trades.filter(t => pnl(t) < 0).map(t => -pnl(t));
+        const gain = positive.reduce((a, b) => a + b, 0);
+        const loss = negative.reduce((a, b) => a + b, 0);
+        return {
+            factor: loss > 0 ? gain / loss : null,
+            ratio: positive.length && negative.length && loss > 0
+                ? (gain / positive.length) / (loss / negative.length) : null
+        };
+    };
+    const recentMetrics = periodMetrics(recentTrades);
+    const priorMetrics = periodMetrics(priorTrades);
+    const changePercent = (current, previous) => current !== null && previous !== null && previous > 0
+        ? 100 * (current - previous) / previous : null;
+    const pctTag = value => value === null ? ''
+        : `<span class="metric-change ${value >= 0 ? 'positive' : 'negative'}">${value >= 0 ? '+' : ''}${value.toFixed(1)}%</span>`;
+    const netPct = previousWeek !== 0 ? 100 * (recentWeek - previousWeek) / Math.abs(previousWeek) : null;
+    const netPctTag = pctTag(netPct);
+    const winPctTag = rateChange === null ? ''
+        : `<span class="metric-change ${rateChange >= 0 ? 'positive' : 'negative'}">${rateChange >= 0 ? '+' : ''}${rateChange.toFixed(1)} pp</span>`;
+    const pfPctTag = pctTag(changePercent(recentMetrics.factor, priorMetrics.factor));
+    const ratioPctTag = pctTag(changePercent(recentMetrics.ratio, priorMetrics.ratio));
+
+
     // The gauge segments represent the actual proportions of wins, breakevens and losses.
     // A single half-circle is split into three contiguous segments, matching the reference.
     const winShare = ts.length ? 100 * wins.length / ts.length : 0;
@@ -144,27 +179,25 @@ function dashboard() {
     const winGauge = `<div class="win-reference-layout">
         <strong class="win-reference-value">${winrate.toFixed(2)}%</strong>
         <div class="win-reference-right" aria-label="${wins.length} wins, ${breakeven} breakeven, ${losses.length} losses">
-            <svg class="win-reference-arc" viewBox="0 0 114 64" aria-hidden="true">
-                <path d="${gaugePath}" fill="none" stroke="var(--border)" stroke-width="9" pathLength="100" />
-                ${gaugeSegment('var(--green)', winShare, 0)}
-                ${gaugeSegment('var(--accent)', evenShare, winShare)}
-                ${gaugeSegment('var(--red)', lossShare, winShare + evenShare)}
+            <svg class="win-reference-arc" viewBox="0 0 48 48" aria-hidden="true">
+                <circle cx="24" cy="24" r="18" fill="none" stroke="var(--border)" stroke-width="7" />
+                <circle cx="24" cy="24" r="18" fill="none" stroke="var(--red)" stroke-width="7" pathLength="100" />
+                <circle cx="24" cy="24" r="18" fill="none" stroke="var(--green)" stroke-width="7" pathLength="100" stroke-dasharray="${winShare} ${100 - winShare}" transform="rotate(-90 24 24)" />
             </svg>
-            <div class="win-reference-counts">
-                <span class="win-reference-pill win-reference-wins">${wins.length} W</span>
-                <span class="win-reference-pill win-reference-even">${breakeven} BE</span>
-                <span class="win-reference-pill win-reference-losses">${losses.length} L</span>
-            </div>
         </div>
     </div>`;
-    const cards = `<section class="metrics metrics-ref metrics-compact metrics-reference">
-        <div class="panel"><div class="metric-label">Net P&L</div><div class="metric-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)}</div><div class="metric-week-change ${weeklyDifference >= 0 ? 'positive' : 'negative'}">${weeklyLabel}</div><div class="metric-sub">${ts.length} closed trades · ${money(totalFees)} fees</div></div>
-        <div class="panel"><div class="metric-label">Trade Win %</div>${winGauge}</div>
-        <div class="panel"><div class="metric-label">Average Win / Loss</div><div class="metric-value">${ratio}</div><div class="ratio-bar"><span style="width:${avgWin + avgLoss ? 100 * avgWin / (avgWin + avgLoss) : 50}%"></span></div><div class="metric-sub avg-win-loss-detail"><span class="positive">${wins.length ? '+' + money(avgWin) : ''}<span class="avg-caption"> avg win</span></span><span class="avg-separator">·</span><span class="negative">${losses.length ? '-' + money(avgLoss) : ''}<span class="avg-caption"> avg loss</span></span></div></div>
+    const cards = `<section class="metrics metrics-ref metrics-compact metrics-reference metrics-dashboard-four">
+        <div class="panel"><div class="metric-label">Net P&L</div><div class="metric-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)} ${netPctTag}</div><div class="metric-week-change ${weeklyDifference >= 0 ? 'positive' : 'negative'}">${weeklyLabel}</div><div class="metric-sub">${ts.length} closed trades · ${money(totalFees)} fees</div></div>
+        <div class="panel"><div class="metric-label">Trade Win %</div>${winGauge}<div class="metric-inline-change">${winPctTag}</div><div class="metric-sub">${wins.length} wins · ${losses.length} losses</div></div>
+        <div class="panel"><div class="metric-label">Profit Factor</div><div class="metric-value">${pf || 'N/A'} ${pfPctTag}</div><div class="metric-sub">${pfDetail}</div></div>
+        <div class="panel"><div class="metric-label">Average Win / Loss</div><div class="metric-value">${ratio || 'N/A'} ${ratioPctTag}</div><div class="ratio-bar"><span style="width:${avgWin + avgLoss ? 100 * avgWin / (avgWin + avgLoss) : 50}%"></span></div><div class="metric-sub">Average winning and losing trade</div></div>
     </section>`;
     return `<div class="pagehead"><div><h2>Trading Overview</h2><div class="dashboard-quote">“${esc(quote)}”</div></div></div>
         ${cards}
-        <div class="dashboard-grid"><section class="panel"><div class="panel-head"><h3>Cumulative P&L</h3></div><div class="chart">${curve(ts)}</div></section><section class="panel"><div class="panel-head"><h3>Performance Score</h3></div>${performanceRadar(ts)}</section></div>
+        <div class="dashboard-grid dashboard-analytics">
+            <section class="panel"><div class="panel-head"><div><h3>Cumulative P&L</h3><p class="muted small">Running net profit and loss · green above zero, red below zero</p></div></div>${curve(ts)}</section>
+            <section class="panel"><div class="panel-head"><div><h3>Performance Score</h3><p class="muted small">Six trading performance dimensions</p></div></div>${performanceRadar(ts)}</section>
+        </div>
         <div class="dashboard-calendar dashboard-calendar-full">${calendarPage(true)}</div>`;
 }
 /** Daily net P&L uses closed-trade exit dates and recorded net results. */
@@ -323,7 +356,7 @@ function curve(ts) {
     }
 
     const shapes = sections.map(({ start, end, positive }) => {
-        const colour = positive ? '#32b84a' : '#ff515a';
+        const colour = positive ? (getComputedStyle(document.documentElement).getPropertyValue('--green').trim() || '#00e676') : (getComputedStyle(document.documentElement).getPropertyValue('--red').trim() || '#ff4055');
         const path = `M ${start[0]} ${baseline} L ${start[0]} ${start[1]} L ${end[0]} ${end[1]} L ${end[0]} ${baseline} Z`;
         return `<path d="${path}" fill="${colour}" fill-opacity=".18" />`;
     }).join('');
@@ -391,18 +424,14 @@ function performanceRadar(ts) {
         ['Recovery', recovery],
         ['Consistency', consistency]
     ];
-    // Shrink small samples towards a neutral score, rather than implying false precision.
-    const reliability = values.length / (values.length + 30);
-    const raw = metrics.reduce((sum, item) => sum + item[1], 0) / metrics.length;
-    const score = Math.round(100 * (0.5 + reliability * (raw - 0.5)));
-    const cx = 180, cy = 154, R = 105;
+    const cx = 210, cy = 185, R = 140;
     const xy = (i, r) => { const a = -Math.PI / 2 + i * Math.PI / 3; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; };
     const polygon = r => metrics.map((_, i) => xy(i, r).map(v => v.toFixed(1)).join(',')).join(' ');
     const shape = metrics.map((m, i) => xy(i, m[1] * R).map(v => v.toFixed(1)).join(',')).join(' ');
     const grid = [.25, .5, .75, 1].map(v => `<polygon points="${polygon(R * v)}" fill="none" stroke="var(--border)" stroke-width="1"/>`).join('');
     const axes = metrics.map((_, i) => { const [x, y] = xy(i, R); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--border)"/>`; }).join('');
-    const labels = metrics.map(([label, v], i) => { const [x, y] = xy(i, R + 24); return `<text x="${x}" y="${y + 4}" text-anchor="middle" fill="var(--muted)" font-size="11"><title>${label}: ${Math.round(v * 100)} / 100</title>${label}</text>`; }).join('');
-    return `<div class="radar-wrap"><svg viewBox="0 0 360 310" role="img" aria-label="Descriptive performance score ${score} out of 100"><title>Descriptive composite based on ${values.length} closed trades; small samples adjusted towards 50. Not a forecast.</title>${grid}${axes}<polygon points="${shape}" fill="var(--accent)" fill-opacity=".18" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${labels}<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="19" font-weight="700" fill="var(--text)">${score}</text></svg></div>`;
+    const labels = metrics.map(([label, v], i) => { const [x, y] = xy(i, R + 27); return `<text x="${x}" y="${y + 4}" text-anchor="middle" fill="var(--muted)" font-size="11"><title>${label}: ${Math.round(v * 100)} / 100</title>${label}</text>`; }).join('');
+    return `<div class="radar-wrap"><svg viewBox="0 0 420 370" role="img" aria-label="Trading performance radar chart across six dimensions"><title>Six trading performance dimensions based on closed trades</title>${grid}${axes}<polygon points="${shape}" fill="var(--accent)" fill-opacity=".18" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${labels}</svg></div>`;
 }
 
 function tradeSession(dt) {
@@ -600,7 +629,7 @@ function tradeHistorySummary(trades) {
     </div>`;
 }
 
-function tradesPage() { const shown = filtered(); return `<div class="pagehead"><div><h2>Trade History</h2><div class="muted">Search, record and review your trades.</div></div><div><button type="button" class="btn" data-action="import">Import</button> <button type="button" class="btn" data-action="export">Export</button></div></div><div class="toolbar"><input id="search" placeholder="Search instruments, notes…" value="${esc(search)}"><select id="result-filter"><option value="all">All results</option>${['open', 'win', 'loss', 'breakeven'].map(v => `<option value="${v}" ${filter === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><span class="muted small">${shown.length} trades</span>${tradesBalance()}</div>${tradeHistorySummary(shown)}${table(filtered().sort((a, b) => b.dt.localeCompare(a.dt)))}`; }
+function tradesPage() { const shown = filtered(); return `<div class="pagehead"><div><h2>Trade History</h2><div class="muted">Search, record and review your trades.</div></div><div><button type="button" class="btn" data-action="import">Import</button> <button type="button" class="btn" data-action="export">Export</button></div></div><div class="toolbar"><select id="account-filter" aria-label="Filter trading account"><option value="all">All accounts</option>${accounts().map(a => `<option value="${esc(a.id)}" ${account === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select><input id="search" placeholder="Search instruments, notes…" value="${esc(search)}"><select id="result-filter"><option value="all">All results</option>${['open', 'win', 'loss', 'breakeven'].map(v => `<option value="${v}" ${filter === v ? 'selected' : ''}>${v[0].toUpperCase() + v.slice(1)}</option>`).join('')}</select><span class="muted small">${shown.length} trades</span>${tradesBalance()}</div>${tradeHistorySummary(shown)}${table(filtered().sort((a, b) => String(b.dt || '').localeCompare(String(a.dt || ''))))}`; }
 function calendarPage(embedded = false) {
     const first = new Date(year, month, 1).getDay(), days = new Date(year, month + 1, 0).getDate(), byDay = {}; for (const t of allClosed()) {
         const day = (t.xdt || t.dt).slice(0, 10);
@@ -627,7 +656,7 @@ function calendarPage(embedded = false) {
             cells.push(`<button type="button" class="day ${ts.length ? sum > 0 ? 'win' : sum < 0 ? 'loss' : 'even' : ''} ${selectedDay === date ? 'selected' : ''}" data-day="${date}"><span class="number">${d}</span>${ts.length ? `<strong class="amount">${sum > 0 ? '+' : ''}${money(sum)}</strong><span class="small">${ts.length} trade${ts.length === 1 ? '' : 's'}</span>` : ''}</button>`);
         }
         cells.push(`<div class="week-total"><strong class="${weekTotal > 0 ? 'positive' : weekTotal < 0 ? 'negative' : ''}">${weekTrades ? `${weekTotal > 0 ? '+' : ''}${money(weekTotal)}` : 'N/A'}</strong><span>${weekTrades ? `${weekTrades} trade${weekTrades === 1 ? '' : 's'}` : '0 trades'}</span></div>`);
-    } const chosen = byDay[selectedDay] || []; return `${embedded ? '' : '<div class="pagehead"><div><h2>Trading Calendar</h2><div class="muted">Daily results at a glance.</div></div></div>'}<section class="panel calendar-panel"><div class="calendar-head calendar-picker" aria-label="Choose calendar month and year"><label class="calendar-picker-field"><select id="calendar-month" aria-label="Calendar month">${Array.from({ length: 12 }, (_, i) => `<option value="${i}" ${i === month ? 'selected' : ''}>${new Date(2024, i, 1).toLocaleString('en-GB', { month: 'long' })}</option>`).join('')}</select></label><label class="calendar-picker-field"><select id="calendar-year" aria-label="Calendar year">${Array.from({ length: 201 }, (_, i) => 1900 + i).map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></label></div><div class="calendar-scroll"><div class="calgrid">${cells.join('')}</div></div><div class="calendar-footer"><span>${tradeDays} trading days · ${greenDays} green</span><span>Month: <strong class="${monthly >= 0 ? 'positive' : 'negative'}">${monthly > 0 ? '+' : ''}${money(monthly)}</strong></span></div></section>${selectedDay ? `<section class="selected-day"><div class="panel-head"><h3>${esc(selectedDay)} · ${chosen.length} trades</h3><button type="button" class="btn" data-action="clear-day">Clear selection</button></div>${table(chosen)}</section>` : ''}`;
+    } const chosen = byDay[selectedDay] || []; return `${embedded ? '' : '<div class="pagehead"><div><h2>Trading Calendar</h2><div class="muted">Daily results at a glance.</div></div></div>'}<section class="panel calendar-panel"><div class="calendar-head calendar-picker" aria-label="Choose calendar month and year"><button type="button" class="calendar-nav-btn" data-action="calendar-prev-year" aria-label="Previous year" title="Previous year"><span aria-hidden="true">&laquo;</span></button><button type="button" class="calendar-nav-btn" data-action="calendar-prev-month" aria-label="Previous month" title="Previous month"><span aria-hidden="true">&lsaquo;</span></button><label class="calendar-picker-field"><select id="calendar-month" aria-label="Calendar month">${Array.from({ length: 12 }, (_, i) => `<option value="${i}" ${i === month ? 'selected' : ''}>${new Date(2024, i, 1).toLocaleString('en-GB', { month: 'long' })}</option>`).join('')}</select></label><label class="calendar-picker-field"><select id="calendar-year" aria-label="Calendar year">${Array.from({ length: 201 }, (_, i) => 1900 + i).map(y => `<option value="${y}" ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></label><button type="button" class="calendar-nav-btn" data-action="calendar-next-month" aria-label="Next month" title="Next month"><span aria-hidden="true">&rsaquo;</span></button><button type="button" class="calendar-nav-btn" data-action="calendar-next-year" aria-label="Next year" title="Next year"><span aria-hidden="true">&raquo;</span></button></div><div class="calendar-scroll"><div class="calgrid">${cells.join('')}</div></div><div class="calendar-footer"><span>${tradeDays} trading days · ${greenDays} green</span><span>Month: <strong class="${monthly >= 0 ? 'positive' : 'negative'}">${monthly > 0 ? '+' : ''}${money(monthly)}</strong></span></div></section>${selectedDay ? `<section class="selected-day"><div class="panel-head"><h3>${esc(selectedDay)} · ${chosen.length} trades</h3><button type="button" class="btn" data-action="clear-day">Clear selection</button></div>${table(chosen)}</section>` : ''}`;
 }
 function accountFigures(a) {
     const flows = Array.isArray(a.flows) ? a.flows : [];
@@ -637,7 +666,7 @@ function accountFigures(a) {
     const net = trades.reduce((v, t) => v + pnl(t), 0);
     return { deposits, withdrawals, net, balance: deposits - withdrawals + net, count: trades.length };
 }
-function settingsPage() { const prefs = data.preferences || {}; return `<div class="pagehead"><div><h2>Settings</h2><div class="muted">Manage your trading accounts and journal.</div></div></div><div class="settings-stack"><section class="panel"><div class="panel-head"><h3>Trading Accounts</h3><button type="button" class="btn" data-action="add-account">+ Add account</button></div><div class="account-list">${accounts().map(a => { const f = accountFigures(a); return `<article class="account-card"><div class="account-card-head"><div><strong>${esc(a.name)}</strong><div class="small muted">${esc(a.broker || 'Broker not set')} · ${esc(a.type || 'Other')}${a.currency ? ' · ' + esc(a.currency) : ''}</div></div><button type="button" class="btn" data-account-edit="${esc(a.id)}">Edit</button></div><div class="account-figures"><div><span>Estimated balance</span><strong>${money(f.balance)}</strong></div><div><span>Deposits</span><strong>${money(f.deposits)}</strong></div><div><span>Withdrawals</span><strong>${money(f.withdrawals)}</strong></div><div><span>Closed trade P&L</span><strong class="${f.net >= 0 ? 'positive' : 'negative'}">${money(f.net)}</strong></div><div><span>Closed trades</span><strong>${f.count}</strong></div></div><div class="account-foot"><span class="small muted">Calculated from recorded activity, not a live broker balance.</span><button type="button" class="btn" data-account-flow="${esc(a.id)}">Deposit / withdrawal</button></div></article>`; }).join('') || '<p class="muted">No accounts yet.</p>'}</div></section><div class="settings-lower"><section class="panel settings-appearance"><h3>Appearance</h3><div class="field"><label for="theme">Theme</label><select id="theme"><option value="light" ${prefs.theme !== 'dark' ? 'selected' : ''}>Light</option><option value="dark" ${prefs.theme === 'dark' ? 'selected' : ''}>Dark (black)</option></select></div><div class="field"><label for="accent">Custom accent colour</label><div class="accent-row"><input id="accent" type="color" value="${/^#[0-9a-fA-F]{6}$/.test(prefs.accent || '') ? prefs.accent : '#2563eb'}"><button type="button" class="btn" data-action="reset-accent">Reset colour</button></div></div><div class="field"><label for="quote">Dashboard quote</label><textarea id="quote" maxlength="180" placeholder="Your trading quote…">${esc(prefs.quote || '')}</textarea><button type="button" class="btn" data-action="save-quote">Save quote</button></div></section><section class="panel settings-data"><h3>Data & Account</h3><p class="muted">Back up your journal or import existing trades.</p><div class="toolbar"><button type="button" class="btn" data-action="export">Export backup</button><button type="button" class="btn" data-action="import">Import file</button></div><div class="account-danger-actions"><button type="button" class="btn" data-action="signout">Sign Out</button><button type="button" class="btn danger" data-action="erase-journal">Erase Journal</button><button type="button" class="btn danger" data-action="delete-profile">Delete Account</button></div><div class="risk-disclaimer"><strong>Risk Disclaimer:</strong> Trading in financial markets and leveraged instruments involves risk, including capital loss. Pipfolio is a trade journaling and analytics platform for informational purposes only, not financial advice, investment recommendations or trading signals. Trading decisions are at your own risk. Past performance does not guarantee future results. Assess circumstances and practise responsible risk management.</div></section></div></div>`; }
+function settingsPage() { const prefs = data.preferences || {}; return `<div class="pagehead"><div><h2>Settings</h2><div class="muted">Manage your trading accounts and journal.</div></div></div><div class="settings-stack"><section class="panel"><div class="panel-head"><h3>Trading Accounts</h3><button type="button" class="btn" data-action="add-account">+ Add account</button></div><div class="account-list">${accounts().map(a => { const f = accountFigures(a); return `<article class="account-card"><div class="account-card-head"><div><strong>${esc(a.name)}</strong><div class="small muted">${esc(a.broker || 'Broker not set')} · ${esc(a.type || 'Other')}${a.currency ? ' · ' + esc(a.currency) : ''}</div></div><button type="button" class="btn" data-account-edit="${esc(a.id)}">Edit</button></div><div class="account-figures"><div><span>Estimated balance</span><strong>${money(f.balance)}</strong></div><div><span>Deposits</span><strong>${money(f.deposits)}</strong></div><div><span>Withdrawals</span><strong>${money(f.withdrawals)}</strong></div><div><span>Closed trade P&L</span><strong class="${f.net >= 0 ? 'positive' : 'negative'}">${money(f.net)}</strong></div><div><span>Closed trades</span><strong>${f.count}</strong></div></div><div class="account-foot"><span class="small muted">Calculated from recorded activity, not a live broker balance.</span><button type="button" class="btn" data-account-flow="${esc(a.id)}">Deposit / withdrawal</button></div></article>`; }).join('') || '<p class="muted">No accounts yet.</p>'}</div></section><section class="panel settings-profile"><div class="panel-head"><h3>Profile & Security</h3></div><div class="profile-fields"><div class="field"><label>Username</label><div class="profile-value">${esc(user?.user_metadata?.username || 'Not set')}</div><button type="button" class="btn" data-action="profile-username">Change Username</button></div><div class="field"><label>Email Address</label><div class="profile-value">${esc(user?.email || 'Not available')}</div><button type="button" class="btn" data-action="profile-email">Change Email</button></div><div class="field"><label>Password</label><div class="profile-value">••••••••</div><button type="button" class="btn" data-action="profile-password">Change Password</button></div></div><p class="small muted">Email changes may require confirmation through your email inbox. Password changes may require a recent sign-in.</p></section><div class="settings-lower"><section class="panel settings-appearance"><h3>Appearance</h3><div class="field"><label for="theme">Theme</label><select id="theme"><option value="light" ${prefs.theme !== 'dark' ? 'selected' : ''}>Light</option><option value="dark" ${prefs.theme === 'dark' ? 'selected' : ''}>Dark (black)</option></select></div><div class="field"><label for="accent">Custom accent colour</label><div class="accent-row"><input id="accent" type="color" value="${/^#[0-9a-fA-F]{6}$/.test(prefs.accent || '') ? prefs.accent : '#2563eb'}"><button type="button" class="btn" data-action="reset-accent">Reset colour</button></div></div><div class="field"><label for="quote">Dashboard quote</label><textarea id="quote" maxlength="180" placeholder="Your trading quote…">${esc(prefs.quote || '')}</textarea><button type="button" class="btn" data-action="save-quote">Save quote</button></div></section><section class="panel settings-data"><h3>Data & Account</h3><p class="muted">Back up your journal or import existing trades.</p><div class="toolbar"><button type="button" class="btn" data-action="export">Export backup</button><button type="button" class="btn" data-action="import">Import file</button></div><div class="account-danger-actions"><button type="button" class="btn" data-action="signout">Sign Out</button><button type="button" class="btn danger" data-action="erase-journal">Erase Journal</button><button type="button" class="btn danger" data-action="delete-profile">Delete Account</button></div><div class="risk-disclaimer"><strong>Risk Disclaimer:</strong> Trading in financial markets and leveraged instruments involves risk, including capital loss. Pipfolio is a trade journaling and analytics platform for informational purposes only, not financial advice, investment recommendations or trading signals. Trading decisions are at your own risk. Past performance does not guarantee future results. Assess circumstances and practise responsible risk management.</div></section></div></div>`; }
 function openModal(title, body, footer = '') { if (modal.open) modal.close(); modal.className = 'dialog'; modal.innerHTML = `<div class="dialog-head"><h3>${esc(title)}</h3><button type="button" class="btn" data-action="close">✕</button></div><div class="dialog-body">${body}</div>${footer ? `<div class="dialog-foot">${footer}</div>` : ''}`; modal.showModal(); }
 function field(name, label, value = '', type = 'text', extra = '') { return `<div class="field"><label for="f-${name}">${label}</label><input id="f-${name}" name="${name}" type="${type}" value="${esc(value)}" ${extra}></div>`; }
 function tradeEditor(id) {
@@ -701,7 +730,7 @@ function renderScreenshots() {
 function readScreenshot(file) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(Error('Could not read screenshot')); reader.readAsDataURL(file); }); }
 modal.addEventListener('change', async (e) => {
     if (e.target.id !== 'trade-screenshot-upload')
-        return; const files = [...e.target.files]; e.target.value = ''; for (const file of files) {
+        return; const files = [...e.target.files]; const uploadDialog = modal.querySelector('#trade-form'); e.target.value = ''; for (const file of files) {
             if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif'].includes(file.type)) {
                 toast('Only PNG, JPEG, WebP and GIF images are supported.');
                 continue;
@@ -711,12 +740,14 @@ modal.addEventListener('change', async (e) => {
                 continue;
             }
             try {
-                screenshotDraft.push(await readScreenshot(file));
+                const imageData = await readScreenshot(file);
+                if (!modal.open || modal.querySelector('#trade-form') !== uploadDialog) return;
+                screenshotDraft.push(imageData);
             }
             catch (err) {
                 toast(err.message);
             }
-        } renderScreenshots();
+        } if (modal.open && modal.querySelector('#trade-form') === uploadDialog) renderScreenshots();
 });
 modal.addEventListener('click', e => {
     const btn = e.target.closest('[data-remove-screenshot]'); if (!btn)
@@ -806,9 +837,32 @@ async function deleteAccount() {
         }
 }
 function exportJSON() { const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }); const url = window.URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = 'pipfolio-backup-' + new Date().toISOString().slice(0, 10) + '.json'; a.click(); setTimeout(() => window.URL.revokeObjectURL(url), 1000); }
+function parseCSVRecords(text) {
+    const rows = []; let row = [], field = '', quoted = false;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        if (c === '"') {
+            if (quoted && text[i + 1] === '"') { field += '"'; i++; }
+            else if (quoted) quoted = false;
+            else if (!field) quoted = true;
+            else field += c;
+        } else if (c === ',' && !quoted) { row.push(field); field = ''; }
+        else if ((c === '\n' || c === '\r') && !quoted) {
+            if (c === '\r' && text[i + 1] === '\n') i++;
+            row.push(field);
+            if (row.some(value => value.trim())) rows.push(row);
+            row = []; field = '';
+        } else field += c;
+    }
+    if (quoted) throw Error('CSV contains an unclosed quoted field.');
+    row.push(field);
+    if (row.some(value => value.trim())) rows.push(row);
+    return rows;
+}
 async function importFile(file) {
     if (!file)
         return; try {
+            if (file.size > 25 * 1024 * 1024) throw Error('Import file exceeds the 25 MB limit.');
             const text = await file.text();
             if (file.name.toLowerCase().endsWith('.json')) {
                 const imported = JSON.parse(text);
@@ -836,7 +890,8 @@ async function importFile(file) {
                     toast(`${added} trades imported`);
             }
             else {
-                const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+                const lines = parseCSVRecords(text.replace(/^\uFEFF/, ''));
+                if (!lines.length) throw Error('CSV file is empty.');
                 const parse = line => {
                     const a = []; let s = '', quoted = false; for (let i = 0; i < line.length; i++) {
                         const c = line[i];
@@ -854,7 +909,7 @@ async function importFile(file) {
                             s += c;
                     } a.push(s); return a;
                 };
-                const h = parse(lines.shift()).map(x => x.trim().toLowerCase());
+                const h = lines.shift().map(x => x.trim().toLowerCase());
                 const col = (row, ...keys) => {
                     for (const key of keys) {
                         const i = h.indexOf(key);
@@ -869,8 +924,8 @@ async function importFile(file) {
                     throw Error('Create an account first.');
                 let count = 0;
                 for (const line of lines) {
-                    const r = parse(line), pair = col(r, 'symbol', 'pair', 'instrument'), date = col(r, 'date', 'entry date', 'entry time', 'datetime'), entry = Number(col(r, 'entry', 'entry price')), size = Number(col(r, 'lots', 'size', 'quantity') || 1), pl = col(r, 'p&l', 'pnl', 'profit', 'gross pnl');
-                    if (!pair || !date || !(entry > 0) || !(size > 0))
+                    const r = line, pair = col(r, 'symbol', 'pair', 'instrument'), date = col(r, 'date', 'entry date', 'entry time', 'datetime'), entry = Number(col(r, 'entry', 'entry price')), size = Number(col(r, 'lots', 'size', 'quantity') || 1), pl = col(r, 'p&l', 'pnl', 'profit', 'gross pnl');
+                    if (!pair || !date || !(entry > 0) || !(size > 0) || (pl !== '' && !Number.isFinite(Number(pl))))
                         continue;
                     const dt = date.includes('T') ? date.slice(0, 16) : date.includes(' ') ? date.replace(' ', 'T').slice(0, 16) : date + 'T00:00';
                     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dt))
@@ -974,7 +1029,7 @@ async function init() {
 app.addEventListener('click', async (e) => {
     const nav = e.target.closest('[data-view]'); if (nav) {
         e.preventDefault();
-        view = nav.dataset.view;
+        view = nav.dataset.view === 'calendar' ? 'dashboard' : nav.dataset.view;
         render();
         return;
     } const edit = e.target.closest('[data-edit]'); if (edit) {
@@ -996,12 +1051,40 @@ app.addEventListener('click', async (e) => {
     } const action = e.target.closest('[data-action]')?.dataset.action; if (!action)
         return;
     e.preventDefault();
+    if (['calendar-prev-year', 'calendar-prev-month', 'calendar-next-month', 'calendar-next-year'].includes(action)) {
+        const change = {
+            'calendar-prev-year': -12,
+            'calendar-prev-month': -1,
+            'calendar-next-month': 1,
+            'calendar-next-year': 12
+        }[action];
+        const next = new Date(year, month + change, 1);
+        if (next.getFullYear() >= 1900 && next.getFullYear() <= 2100) {
+            year = next.getFullYear();
+            month = next.getMonth();
+            selectedDay = '';
+            render();
+        }
+        return;
+    }
     if (action === 'calendar-today') {
         const today = new Date();
         month = today.getMonth();
         year = today.getFullYear();
         selectedDay = '';
         render();
+        return;
+    }
+    if (action === 'profile-username') {
+        openModal('Change Username', `<form id="profile-username-form"><div class="field"><label for="profile-username-input">Username</label><input id="profile-username-input" name="username" required minlength="3" maxlength="40" autocomplete="nickname" value="${esc(user?.user_metadata?.username || '')}"></div></form>`, `<button type="button" class="btn primary" data-action="save-profile-username">Save Username</button>`);
+        return;
+    }
+    if (action === 'profile-email') {
+        openModal('Change Email', `<form id="profile-email-form"><div class="field"><label for="profile-email-input">New Email Address</label><input id="profile-email-input" name="email" type="email" autocomplete="email" required value="${esc(user?.email || '')}"></div></form>`, `<button type="button" class="btn primary" data-action="save-profile-email">Update Email</button>`);
+        return;
+    }
+    if (action === 'profile-password') {
+        openModal('Change Password', `<form id="profile-password-form"><div class="field"><label for="profile-password-current">Current Password</label><input id="profile-password-current" name="current" type="password" autocomplete="current-password" required></div><div class="field"><label for="profile-password-input">New Password</label><input id="profile-password-input" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></div><div class="field"><label for="profile-password-confirm">Confirm Password</label><input id="profile-password-confirm" name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></div></form>`, `<button type="button" class="btn primary" data-action="save-profile-password">Update Password</button>`);
         return;
     }
     if (action === 'add')
@@ -1097,6 +1180,50 @@ modal.addEventListener('click', async (e) => {
     } const action = e.target.closest('[data-action]')?.dataset.action; if (!action)
         return;
     e.preventDefault();
+    if (['save-profile-username', 'save-profile-email', 'save-profile-password'].includes(action)) {
+        if (busy) return;
+        const form = modal.querySelector('form');
+        if (!form?.reportValidity()) return;
+        let changes;
+        if (action === 'save-profile-username') {
+            const username = form.elements.username.value.trim();
+            if (username.length < 3 || username.length > 40) return toast('Username must be 3–40 characters.');
+            changes = { data: { username } };
+        } else if (action === 'save-profile-email') {
+            const email = form.elements.email.value.trim();
+            if (email.toLowerCase() === String(user?.email || '').toLowerCase()) return toast('This is already your email address.');
+            changes = { email };
+        } else {
+            if (form.elements.password.value !== form.elements.confirm.value) return toast('Passwords do not match.');
+            if (!user?.email) return toast('A registered email address is required to verify your current password.');
+            if (!form.elements.current.value) return toast('Enter your current password.');
+            if (form.elements.current.value === form.elements.password.value) return toast('Choose a new password different from your current password.');
+            changes = { password: form.elements.password.value };
+        }
+        busy = true;
+        try {
+            if (action === 'save-profile-password') {
+                // Verify the current password with Supabase before allowing the change.
+                // Never store the entered password in the journal or browser storage.
+                const verify = await db.auth.signInWithPassword({
+                    email: user.email,
+                    password: form.elements.current.value
+                });
+                if (verify.error) throw new Error('Current password is incorrect or could not be verified.');
+            }
+            const result = await db.auth.updateUser(changes);
+            if (result.error) throw result.error;
+            if (result.data?.user) user = result.data.user;
+            modal.close();
+            render();
+            toast(action === 'save-profile-email' ? 'Check your inbox to confirm the email change.' : 'Account details updated.');
+        } catch (err) {
+            toast('Update failed: ' + err.message);
+        } finally {
+            busy = false;
+        }
+        return;
+    }
     if (action === 'close')
         modal.close(); if (action === 'edit-viewed-trade')
         tradeEditor(modal.dataset.trade); if (action === 'save-trade')
@@ -1159,7 +1286,7 @@ app.addEventListener('input', e => {
         const wrap = app.querySelector('.tablewrap,.empty');
         if (wrap) {
             const holder = document.createElement('div');
-            holder.innerHTML = table(filtered().sort((a, b) => b.dt.localeCompare(a.dt)));
+            holder.innerHTML = table(filtered().sort((a, b) => String(b.dt || '').localeCompare(String(a.dt || ''))));
             wrap.replaceWith(holder.firstElementChild);
         }
         const count = app.querySelector('.toolbar .muted');
@@ -1177,9 +1304,10 @@ document.addEventListener('pointermove', event => {
     const dot = chart.querySelector('.cumulative-hover-dot');
     const tooltip = chart.querySelector('.cumulative-hover-tooltip');
     if (!svg || !dot || !tooltip) return;
-    const points = JSON.parse(decodeURIComponent(chart.dataset.curvePoints || '[]'));
+    let points; try { points = JSON.parse(decodeURIComponent(chart.dataset.curvePoints || '[]')); } catch { return; }
     if (!points.length) return;
     const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
     const localX = (event.clientX - rect.left) * 720 / rect.width;
     const nearest = points.reduce((best, point) =>
         Math.abs(point.x - localX) < Math.abs(best.x - localX) ? point : best
@@ -1202,4 +1330,3 @@ document.addEventListener('pointerout', event => {
 });
 document.getElementById('upload').addEventListener('change', e => { importFile(e.target.files[0]); e.target.value = ''; });
 init();
-

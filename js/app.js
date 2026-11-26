@@ -63,7 +63,7 @@ async function load() {
     const r = await db.from('journals').select('payload,revision').eq('user_id', user.id).maybeSingle(); if (r.error)
         throw r.error; revision = num(r.data?.revision); if (r.data?.payload) {
             data = r.data.payload;
-            if (!Array.isArray(data.trades) || !data.settings)
+            if (!data || !Array.isArray(data.trades) || !data.settings || !Array.isArray(data.settings.accounts || []))
                 throw Error('Your saved journal has an unsupported format. No data was changed.');
         } data.settings.accounts ||= []; data.preferences ||= { theme: 'light', accent: '#2563eb', quote: '' }; if (migrateOpeningBalances(data)) { await save(data); } theme(); render();
 }
@@ -99,8 +99,11 @@ const clone = () => structuredClone(data);
 function icons(name) { const paths = { dashboard: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>', trades: '<path d="M4 6h16M4 12h16M4 18h16"/>', calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>', settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2"/>' }; return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name]}</svg>`; }
 function shell(inner) { app.innerHTML = `<div class="shell"><header class="topbar"><div class="brand"><img class="brand-icon" src="assets/pipfolio-logo.png" alt="P"><span>ipfolio</span></div><div class="header-right"><span class="header-username" title="Signed-in username">${esc(user?.user_metadata?.username || user?.email?.split("@")[0] || "Account")}</span><nav class="nav" aria-label="Main navigation">${['dashboard', 'trades', 'settings'].map(v => `<button type="button" data-view="${v}" class="${view === v ? 'active' : ''}">${v[0].toUpperCase() + v.slice(1)}</button>`).join('')}</nav><div class="top-actions"><button type="button" class="btn primary" data-action="add">+ Add trade</button></div></div></header><main class="content">${inner}<footer class="footer"><span>© 2026 <a href="mailto:pipfolio@proton.me">Pipfolio</a>. All rights reserved.</span><span><a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">Privacy Policy</a> &amp; <a href="https://github.com/Pipfolio/pipfolio.github.io/blob/main/TERMS.md" target="_blank" rel="noopener noreferrer">Terms of Service</a></span></footer></main></div>`; }
 function render() {
-    if (!user)
-        return auth(); shell(view === 'dashboard' ? dashboard() : view === 'trades' ? tradesPage() : settingsPage());
+    if (!user) {
+        auth();
+        return;
+    }
+    shell(view === 'dashboard' ? dashboard() : view === 'trades' ? tradesPage() : settingsPage());
 }
 function dashboard() {
     const ts = allClosed().sort((a, b) => String(a.xdt || a.dt || '').localeCompare(String(b.xdt || b.dt || '')));
@@ -184,22 +187,22 @@ function dashboard() {
             <svg class="win-reference-arc" viewBox="0 0 120 82" aria-hidden="true">
                 <path d="${gaugePath}" fill="none" stroke="var(--border)" stroke-width="10" />
                 ${gaugeSegment('var(--green)', winShare, 0)}
-                ${gaugeSegment('var(--neutral-gauge, #8c96ad)', evenShare, winShare)}
+                ${gaugeSegment('var(--accent)', evenShare, winShare)}
                 ${gaugeSegment('var(--red)', lossShare, winShare + evenShare)}
             </svg>
             <div class="win-gauge-counts" aria-hidden="true"><span class="win-pill">${wins.length} W</span><span class="even-pill">${breakeven} BE</span><span class="loss-pill">${losses.length} L</span></div>
         </div>
     </div>`;
     const cards = `<section class="metrics metrics-ref metrics-compact metrics-reference metrics-dashboard-four">
-        <div class="panel"><div class="metric-label">Net P&L</div><div class="metric-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)} ${netPctTag}</div><div class="metric-week-change ${weeklyDifference >= 0 ? 'positive' : 'negative'}">${weeklyLabel}</div><div class="metric-sub">${ts.length} closed trades · ${money(totalFees)} fees</div></div>
+        <div class="panel"><div class="metric-label">Net P&L</div><div class="metric-value ${net >= 0 ? 'positive' : 'negative'}">${money(net)}</div><div class="metric-week-change ${weeklyDifference >= 0 ? 'positive' : 'negative'}">${weeklyLabel}</div><div class="metric-sub">${ts.length} closed trades · ${money(totalFees)} fees</div></div>
         <div class="panel win-card"><div class="metric-label">Trade Win %</div>${winGauge}</div>
         <div class="panel"><div class="metric-label">Profit Factor</div><div class="metric-value">${pf || 'N/A'} ${pfPctTag}</div><div class="metric-sub">${pfDetail}</div></div>
-        <div class="panel"><div class="metric-label">Average Win / Loss</div><div class="metric-value">${ratio || 'N/A'} ${ratioPctTag}</div><div class="ratio-bar"><span style="width:${avgWin + avgLoss ? 100 * avgWin / (avgWin + avgLoss) : 50}%"></span></div><div class="metric-sub">Average winning and losing trade</div></div>
+        <div class="panel"><div class="metric-label">Average Win / Loss</div><div class="metric-value">${ratio || 'N/A'}</div><div class="ratio-bar"><span style="width:${avgWin + avgLoss ? 100 * avgWin / (avgWin + avgLoss) : 50}%"></span></div><div class="avg-win-loss-detail"><span><span class="positive">+${money(avgWin)}</span> <span class="avg-detail-label">avg win</span></span><span><span class="negative">-${money(avgLoss)}</span> <span class="avg-detail-label">avg loss</span></span></div></div>
     </section>`;
     return `<div class="pagehead"><div><h2>Trading Overview</h2><div class="dashboard-quote">“${esc(quote)}”</div></div></div>
         ${cards}
         <div class="dashboard-grid dashboard-analytics">
-            <section class="panel"><div class="panel-head"><div><h3>Cumulative P&L</h3><p class="muted small">Running net profit and loss · green above zero, red below zero</p></div></div>${curve(ts)}</section>
+            <section class="panel"><div class="panel-head"><div><h3>Cumulative P&L</h3><p class="muted small">Running net profit and loss</p></div></div>${curve(ts)}</section>
             <section class="panel"><div class="panel-head"><div><h3>Performance Score</h3><p class="muted small">Six trading performance dimensions</p></div></div>${performanceRadar(ts)}</section>
         </div>
         <div class="dashboard-calendar dashboard-calendar-full">${calendarPage(true)}</div>`;
@@ -341,36 +344,15 @@ function curve(ts) {
     const y = v => 258 - (v - low) / range * 220;
     const baseline = y(0);
     const points = values.map((v, i) => [x(i), y(v)]);
-    const sections = [];
-
-    // Split at exact zero crossings so profits and losses have distinct colours.
-    for (let i = 1; i < values.length; i++) {
-        const previous = values[i - 1];
-        const current = values[i];
-        const start = points[i - 1];
-        const end = points[i];
-        if ((previous < 0 && current > 0) || (previous > 0 && current < 0)) {
-            const fraction = -previous / (current - previous);
-            const crossing = [start[0] + (end[0] - start[0]) * fraction, baseline];
-            sections.push({ start, end: crossing, positive: previous > 0 });
-            sections.push({ start: crossing, end, positive: current > 0 });
-        } else {
-            sections.push({ start, end, positive: previous >= 0 && current >= 0 });
-        }
-    }
-
-    const shapes = sections.map(({ start, end, positive }) => {
-        const colour = positive ? (getComputedStyle(document.documentElement).getPropertyValue('--green').trim() || '#00e676') : (getComputedStyle(document.documentElement).getPropertyValue('--red').trim() || '#ff4055');
-        const path = `M ${start[0]} ${baseline} L ${start[0]} ${start[1]} L ${end[0]} ${end[1]} L ${end[0]} ${baseline} Z`;
-        return `<path d="${path}" fill="${colour}" fill-opacity=".18" />`;
-    }).join('');
-    // Keep the entire P&L line in the user's chosen accent colour.
-    // The separate filled areas still indicate positive and negative P&L.
+    // Match the performance radar: one accent-coloured area at 18% opacity,
+    // with an accent-coloured outline and zero baseline.
     const linePath = points.map(([px, py], index) =>
         `${index === 0 ? 'M' : 'L'} ${px} ${py}`
     ).join(' ');
+    const areaPath = `${linePath} L ${points.at(-1)[0]} ${baseline} L ${points[0][0]} ${baseline} Z`;
+    const shapes = `<path d="${areaPath}" fill="var(--accent)" fill-opacity=".18" />`;
     const strokes = `<path d="${linePath}" fill="none" stroke="var(--accent)"
-        stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />`;
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`;
     const hoverData = values.map((value, i) => ({
         x: x(i),
         y: y(value),
@@ -380,8 +362,8 @@ function curve(ts) {
     const encodedData = encodeURIComponent(JSON.stringify(hoverData));
 
     return `<div class="cumulative-combined-chart" data-curve-points="${encodedData}">
-        <svg viewBox="0 0 720 290" role="img" aria-label="Cumulative P&L with accent-coloured line, green fill above zero and red fill below zero" preserveAspectRatio="xMidYMid meet">
-            <line x1="28" x2="692" y1="${baseline}" y2="${baseline}" stroke="var(--muted)" stroke-opacity=".65" stroke-width="1.2" />
+        <svg viewBox="0 0 720 290" role="img" aria-label="Cumulative P&L with accent-coloured line and area fill" preserveAspectRatio="xMidYMid meet">
+            <line x1="28" x2="692" y1="${baseline}" y2="${baseline}" stroke="var(--border)" stroke-width="1" />
             ${shapes}
             ${strokes}
             <circle class="cumulative-hover-dot" cx="28" cy="${baseline}" r="5" visibility="hidden" />
@@ -1000,29 +982,24 @@ async function init() {
             await load();
         }
         catch (e) {
-            auth('signin', 'Unable to load your journal: ' + e.message);
+            app.innerHTML = '<div class="auth"><div class="auth-card"><h1>Journal unavailable</h1><p class="muted">Your session is still active, but your journal could not be loaded.</p><p id="load-error"></p><button class="btn primary" type="button" onclick="location.reload()">Retry</button></div></div>';
+            document.getElementById('load-error').textContent = e.message;
         }
     }
     else
         auth(); db.auth.onAuthStateChange((event, session) => {
             if (event === 'SIGNED_OUT') {
-                // Ignore unexpected auth notifications until the actual session is checked.
-                // This prevents an unrelated UI action from immediately clearing the page.
-                Promise.resolve().then(async () => {
-                    const current = await db.auth.getSession();
-                    if (current.error) {
-                        toast('Unable to verify your session. Please try again.');
-                        return;
-                    }
-                    if (current.data?.session?.user) {
-                        user = current.data.session.user;
-                        explicitSignOut = false;
-                        return;
-                    }
-                    user = null;
-                    explicitSignOut = false;
-                    if (!app.querySelector('#auth-form')) auth();
-                }).catch(err => toast('Session check failed: ' + err.message));
+                // Only an explicit sign-out may clear the active interface.
+                // Transient refresh failures and cross-tab notifications must not
+                // unexpectedly discard an in-progress trade or settings edit.
+                if (!explicitSignOut) {
+                    console.warn('Pipfolio: unexpected signed-out notification; preserving current view.');
+                    toast('Your session may have expired. Save a backup and sign in again if needed.');
+                    return;
+                }
+                user = null;
+                explicitSignOut = false;
+                auth();
             }
             else if (event === 'PASSWORD_RECOVERY') {
                 user = session?.user;
@@ -1050,6 +1027,7 @@ app.addEventListener('click', async (e) => {
         accountFlowEditor(flow.dataset.accountFlow);
         return;
     } const au = e.target.closest('[data-auth]'); if (au) {
+        e.preventDefault();
         auth(au.dataset.auth);
         return;
     } const action = e.target.closest('[data-action]')?.dataset.action; if (!action)
@@ -1124,6 +1102,7 @@ app.addEventListener('click', async (e) => {
             n.preferences.accent = '#2563eb';
             if (await save(n))
                 toast('Accent colour reset');
+        }
     if (action === 'erase-journal') {
         if (!confirm('Erase all trades, screenshots, trading accounts and recorded transactions? This cannot be undone. Export a backup first.')) return;
         const response = prompt('Type ERASE to permanently erase your journal:');
@@ -1166,13 +1145,19 @@ app.addEventListener('click', async (e) => {
         }
         return;
     }
-        } if (action === 'signout') {
+    if (action === 'signout') {
+            if (!e.isTrusted || !e.target.closest('button[data-action="signout"]')) return;
             if (!confirm('Sign out of Pipfolio?')) return;
             explicitSignOut = true;
-            const result = await db.auth.signOut();
-            if (result.error) {
+            try {
+                const result = await db.auth.signOut({ scope: 'local' });
+                if (result.error) throw result.error;
+                user = null;
                 explicitSignOut = false;
-                toast('Sign out failed: ' + result.error.message);
+                auth();
+            } catch (error) {
+                explicitSignOut = false;
+                toast('Sign out failed: ' + error.message);
             }
         }
 });
